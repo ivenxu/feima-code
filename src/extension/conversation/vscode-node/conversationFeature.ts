@@ -95,6 +95,14 @@ export class ConversationFeature implements IExtensionContribution {
 			activationBlockerDeferred.complete();
 		}
 
+		// Add a timeout to ensure activation doesn't hang indefinitely
+		const activationTimeout = setTimeout(() => {
+			if (!activationBlockerDeferred.isSettled) {
+				this.logService.warn('ConversationFeature: Activation blocker timeout reached, completing without authentication');
+				activationBlockerDeferred.complete();
+			}
+		}, 30000); // 30 second timeout
+
 		this._disposables.add(authenticationService.onDidAuthenticationChange(async () => {
 			const hasSession = !!authenticationService.copilotToken;
 			this.logService.debug(`ConversationFeature: onDidAuthenticationChange has token: ${hasSession}`);
@@ -104,6 +112,7 @@ export class ConversationFeature implements IExtensionContribution {
 				this.activated = false;
 			}
 
+			clearTimeout(activationTimeout);
 			activationBlockerDeferred.complete();
 		}));
 	}

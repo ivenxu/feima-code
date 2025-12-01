@@ -81,6 +81,8 @@
 	"activationEvents": [
 		"onStartupFinished",
 		"onLanguageModelChat:copilot",
+		"onAuthenticationRequest:my-dummy-authentication",
+		"onLanguageModelAccess:dummy",
 		"onUri",
 		"onFileSystem:ccreq",
 		"onFileSystem:ccsettings"
@@ -138,6 +140,12 @@
 		"contribEditorContentMenu"
 	],
 	"contributes": {
+		"authentication": [
+			{
+				"id": "my-dummy-authentication",
+				"label": "My Dummy Auth"
+			}
+		],
 		"languageModelTools": [
 			{
 				"name": "copilot_searchCodebase",
@@ -1680,6 +1688,10 @@
 		],
 		"languageModelChatProviders": [
 			{
+				"vendor": "dummy",
+				"displayName": "Dummy Models"
+			},
+			{
 				"vendor": "copilot",
 				"displayName": "Copilot"
 			},
@@ -1833,6 +1845,16 @@
 			}
 		],
 		"commands": [
+			{
+				"command": "github.copilot.dummy.signIn",
+				"title": "Sign In with Dummy Auth",
+				"category": "Dummy Auth"
+			},
+			{
+				"command": "github.copilot.dummy.signOut",
+				"title": "Sign Out of Dummy Auth",
+				"category": "Dummy Auth"
+			},
 			{
 				"command": "github.copilot.chat.triggerPermissiveSignIn",
 				"title": "%github.copilot.command.triggerPermissiveSignIn%"
