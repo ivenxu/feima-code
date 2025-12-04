@@ -4,8 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import { IVSCodeExtensionContext } from '../../../platform/extContext/common/extensionContext';
+import { IFetcherService } from '../../../platform/networking/common/fetcherService';
 import { Disposable } from '../../../util/vs/base/common/lifecycle';
+import { IAuthorizationServerMetadata } from '../../../util/vs/base/common/oauth';
 import { IExtensionContribution } from '../../common/contributions';
+import { IOAuth2Config, OAuth2Service } from '../../dummyAuth/common/oauth2Service';
 import { DummyAuthProvider } from '../../dummyAuth/vscode-node/dummyAuthProvider';
 import { DummyModelProvider } from '../../dummyModels/vscode-node/dummyModelProvider';
 
@@ -14,7 +18,7 @@ const DUMMY_AUTH_SIGNED_IN_KEY = 'github.copilot.dummyAuth.signedIn';
 
 /**
  * Contribution that registers the dummy authentication provider and dummy model provider.
- * This is for PoC purposes to test chat functionality without GitHub authentication.
+ * Uses OAuth2 + PKCE flow for authentication.
  */
 export class DummyProvidersContribution extends Disposable implements IExtensionContribution {
 
@@ -22,7 +26,10 @@ export class DummyProvidersContribution extends Disposable implements IExtension
 	private readonly authProvider: DummyAuthProvider;
 	private readonly modelProvider: DummyModelProvider;
 
-	constructor() {
+	constructor(
+		@IFetcherService private readonly fetcherService: IFetcherService,
+		@IVSCodeExtensionContext private readonly context: IVSCodeExtensionContext
+	) {
 		super();
 
 		console.log('[DummyProviders] Starting registration...');
@@ -31,6 +38,12 @@ export class DummyProvidersContribution extends Disposable implements IExtension
 		// This ensures the menu item is visible from the start
 		vscode.commands.executeCommand('setContext', DUMMY_AUTH_SIGNED_IN_KEY, false);
 		console.log(`[DummyProviders] Context key ${DUMMY_AUTH_SIGNED_IN_KEY} initialized to: false`);
+
+		// Configure OAuth2
+		// TODO: Move to configuration or environment variables
+		const oauth2Config: IOAuth2Config = this.getOAuth2Config();
+		const oauth2Service = new OAuth2Service(oauth2Config, this.fetcherService);
+		console.log('[DummyProviders] OAuth2Service initialized');
 
 		// Initialize context key for sign-in state
 		const updateSignInContext = async () => {
@@ -45,8 +58,13 @@ export class DummyProvidersContribution extends Disposable implements IExtension
 		};
 
 		// Register authentication provider
-		this.authProvider = new DummyAuthProvider();
+		this.authProvider = new DummyAuthProvider(this.context, oauth2Config, oauth2Service);
 		console.log('[DummyProviders] Created DummyAuthProvider');
+
+		// Register URI handler for OAuth callbacks
+		this._register(vscode.window.registerUriHandler(this.authProvider));
+		console.log('[DummyProviders] Registered URI handler for OAuth callbacks');
+
 		this._register(
 			vscode.authentication.registerAuthenticationProvider(
 				'my-dummy-authentication',
@@ -73,12 +91,19 @@ export class DummyProvidersContribution extends Disposable implements IExtension
 		this._register(
 			vscode.authentication.onDidChangeSessions(async (e: vscode.AuthenticationSessionsChangeEvent) => {
 				if (e.provider.id === 'my-dummy-authentication') {
+					console.log('[DummyProviders] Session change event:', {
+						added: e.added?.length ?? 0,
+						removed: e.removed?.length ?? 0,
+						changed: e.changed?.length ?? 0
+					});
+
 					// Check current session state
 					const sessions = await vscode.authentication.getSession(
 						'my-dummy-authentication',
 						[],
 						{ createIfNone: false, silent: true }
 					);
+					console.log('[DummyProviders] Session after change:', sessions ? 'EXISTS' : 'NONE');
 					const isSignedIn = !!sessions;
 					await vscode.commands.executeCommand('setContext', DUMMY_AUTH_SIGNED_IN_KEY, isSignedIn);
 					console.log(`[DummyProviders] Session changed, context key ${DUMMY_AUTH_SIGNED_IN_KEY} set to:`, isSignedIn);
@@ -231,5 +256,39 @@ export class DummyProvidersContribution extends Disposable implements IExtension
 		);
 
 		return vscode.Disposable.from(...disposables);
+	}
+
+	/**
+	 * Get OAuth2 configuration.
+	 * TODO: Move to VS Code settings or environment variables for production use.
+	 */
+	private getOAuth2Config(): IOAuth2Config {
+		// Example configuration for a generic OAuth2 provider
+		// This can be configured for AWS Cognito, Auth0, Okta, Azure AD, etc.
+		const serverMetadata: IAuthorizationServerMetadata = {
+			issuer: process.env.OAUTH_ISSUER || 'https://example.com',
+			authorization_endpoint: process.env.OAUTH_AUTH_ENDPOINT || 'https://example.com/oauth2/authorize',
+			token_endpoint: process.env.OAUTH_TOKEN_ENDPOINT || 'https://example.com/oauth2/token',
+			revocation_endpoint: process.env.OAUTH_REVOCATION_ENDPOINT,
+			response_types_supported: ['code'],
+			grant_types_supported: ['authorization_code', 'refresh_token'],
+			code_challenge_methods_supported: ['S256'],
+			scopes_supported: ['openid', 'email', 'profile']
+		};
+
+		// For remote/WSL scenarios, the callback URI is transformed by vscode.env.asExternalUri()
+		// Local: vscode://github.copilot-chat/oauth/callback
+		// Remote/WSL: https://vscode.dev/redirect?url=vscode://github.copilot-chat/oauth/callback
+		return {
+			clientId: process.env.OAUTH_CLIENT_ID || 'your-client-id',
+			clientSecret: process.env.OAUTH_CLIENT_SECRET, // Optional for public clients with PKCE
+			serverMetadata,
+			redirectUri: `${vscode.env.uriScheme}://github.copilot-chat/oauth/callback`,  // Base URI - transformed for remote
+			scopes: ['openid', 'email', 'profile'],
+			additionalAuthParams: {
+				// Optional: add provider-specific parameters
+				// For example, Azure AD might need 'prompt': 'select_account'
+			}
+		};
 	}
 }

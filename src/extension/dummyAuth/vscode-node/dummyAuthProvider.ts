@@ -4,16 +4,63 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import { IVSCodeExtensionContext } from '../../../platform/extContext/common/extensionContext';
+import { IAuthorizationTokenResponse } from '../../../util/vs/base/common/oauth';
+import { IOAuth2Config, OAuth2Service } from '../common/oauth2Service';
 
 /**
- * Dummy authentication provider that auto-authenticates users without OAuth flow.
- * This is for PoC purposes to test model providers without GitHub authentication.
+ * Stored token data in VS Code secrets
  */
-export class DummyAuthProvider implements vscode.AuthenticationProvider {
+interface IStoredTokenData {
+	tokenResponse: IAuthorizationTokenResponse;
+	issuedAt: number;
+	sessionId: string;
+	accountId: string;
+	accountLabel: string;
+}
+
+/**
+ * Authentication provider using OAuth2 + PKCE flow
+ */
+export class DummyAuthProvider implements vscode.AuthenticationProvider, vscode.UriHandler {
 	private _onDidChangeSessions = new vscode.EventEmitter<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>();
 	readonly onDidChangeSessions = this._onDidChangeSessions.event;
 
-	private _session: vscode.AuthenticationSession | undefined;
+	private readonly _oauth2Service: OAuth2Service;
+	private readonly _secretsKey = 'dummyAuth.tokens';
+	private _pendingCallback: ((result: { code: string } | { error: string }) => void) | undefined;
+
+	constructor(
+		private readonly _context: IVSCodeExtensionContext,
+		config: IOAuth2Config,
+		oauth2Service: OAuth2Service
+	) {
+		this._oauth2Service = oauth2Service;
+		console.log('[DummyAuthProvider] Constructor called, context:', !!this._context);
+		console.log('[DummyAuthProvider] Context has secrets:', !!this._context?.secrets);
+	}
+
+	/**
+	 * Handle OAuth callback URI
+	 */
+	async handleUri(uri: vscode.Uri): Promise<void> {
+		console.log('[DummyAuthProvider] handleUri called with:', uri.toString());
+		console.log('[DummyAuthProvider] URI path:', uri.path);
+		console.log('[DummyAuthProvider] URI query:', uri.query);
+		console.log('[DummyAuthProvider] Pending callback exists:', !!this._pendingCallback);
+
+		if (!this._pendingCallback) {
+			console.warn('[DummyAuthProvider] Received callback without pending request');
+			vscode.window.showErrorMessage('OAuth callback received but no authentication was in progress. Please try signing in again.');
+			return;
+		}
+
+		// Validate callback using the parsed query string from VS Code
+		const result = this._oauth2Service.validateCallback(uri.query);
+		console.log('[DummyAuthProvider] Callback validation result:', result);
+		this._pendingCallback(result);
+		this._pendingCallback = undefined;
+	}
 
 	/**
 	 * Get existing sessions
@@ -22,50 +69,191 @@ export class DummyAuthProvider implements vscode.AuthenticationProvider {
 		_scopes: readonly string[] | undefined,
 		_options: vscode.AuthenticationProviderSessionOptions
 	): Promise<vscode.AuthenticationSession[]> {
-		return this._session ? [this._session] : [];
+		const stored = await this._loadStoredToken();
+		if (!stored) {
+			return [];
+		}
+
+		// Check if token needs refresh
+		const needsRefresh = this._oauth2Service.shouldRefreshToken(stored.tokenResponse);
+		if (needsRefresh && stored.tokenResponse.refresh_token) {
+			try {
+				const refreshed = await this._oauth2Service.refreshAccessToken(stored.tokenResponse.refresh_token);
+				await this._saveToken(refreshed, stored.accountId, stored.accountLabel);
+				stored.tokenResponse = refreshed;
+				stored.issuedAt = Date.now();
+			} catch (error) {
+				console.error('[DummyAuthProvider] Token refresh failed:', error);
+				await this._clearStoredToken();
+				return [];
+			}
+		}
+
+		return [{
+			id: stored.sessionId,
+			accessToken: stored.tokenResponse.access_token,
+			account: {
+				id: stored.accountId,
+				label: stored.accountLabel
+			},
+			scopes: []
+		}];
 	}
 
 	/**
-	 * Create a new session (auto-authenticate without OAuth)
+	 * Create a new session with OAuth2 flow
 	 */
 	async createSession(
 		_scopes: readonly string[],
 		_options: vscode.AuthenticationProviderSessionOptions
 	): Promise<vscode.AuthenticationSession> {
-		// Create a mock session immediately without any OAuth flow
-		this._session = {
+		// Get the actual callback URI (handles remote/WSL scenarios)
+		// In remote: transforms vscode:// to https://vscode.dev/redirect?url=vscode://...
+		const callbackUri = await vscode.env.asExternalUri(
+			vscode.Uri.parse(`${vscode.env.uriScheme}://github.copilot-chat/oauth/callback`)
+		);
+		console.log('[DummyAuthProvider] Callback URI (for Cognito config):', callbackUri.toString());
+		console.log('[DummyAuthProvider] URI Scheme:', vscode.env.uriScheme);
+		console.log('[DummyAuthProvider] Remote Name:', vscode.env.remoteName || 'none (local)');
+
+		// Build authorization URL
+		const authUrl = await this._oauth2Service.buildAuthorizationUrl();
+
+		// Open in browser
+		const opened = await vscode.env.openExternal(vscode.Uri.parse(authUrl));
+		if (!opened) {
+			throw new Error('Failed to open authentication URL');
+		}
+
+		// Wait for callback
+		const result = await new Promise<{ code: string } | { error: string }>((resolve) => {
+			this._pendingCallback = resolve;
+			// Timeout after 5 minutes
+			setTimeout(() => {
+				if (this._pendingCallback) {
+					this._pendingCallback({ error: 'Authentication timed out' });
+					this._pendingCallback = undefined;
+				}
+			}, 5 * 60 * 1000);
+		});
+
+		if ('error' in result) {
+			throw new Error(`Authentication failed: ${result.error}`);
+		}
+
+		// Exchange code for token
+		const tokenResponse = await this._oauth2Service.exchangeCodeForToken(result.code);
+
+		// Extract user info
+		const userInfo = this._oauth2Service.getUserInfo(tokenResponse);
+		const accountId = userInfo?.sub || `user-${Date.now()}`;
+		const accountLabel = userInfo?.email || userInfo?.preferred_username || userInfo?.name || 'Dummy User';
+
+		// Save token
+		await this._saveToken(tokenResponse, accountId, accountLabel);
+
+		const session: vscode.AuthenticationSession = {
 			id: `dummy-session-${Date.now()}`,
-			accessToken: `dummy-token-${Math.random().toString(36).substring(7)}`,
+			accessToken: tokenResponse.access_token,
 			account: {
-				id: 'dummy-user-id',
-				label: 'Dummy User'
+				id: accountId,
+				label: accountLabel
 			},
 			scopes: []
 		};
 
-		// Fire the change event to notify VS Code
+		// Fire the change event
 		this._onDidChangeSessions.fire({
-			added: [this._session],
+			added: [session],
 			removed: [],
 			changed: []
 		});
 
-		return this._session;
+		return session;
 	}
 
 	/**
 	 * Remove a session
 	 */
 	async removeSession(sessionId: string): Promise<void> {
-		if (this._session?.id === sessionId) {
-			const removed = this._session;
-			this._session = undefined;
-
-			this._onDidChangeSessions.fire({
-				added: [],
-				removed: [removed],
-				changed: []
-			});
+		console.log('[DummyAuthProvider] removeSession called for:', sessionId);
+		const stored = await this._loadStoredToken();
+		console.log('[DummyAuthProvider] Stored session:', stored ? stored.sessionId : 'NONE');
+		if (!stored || stored.sessionId !== sessionId) {
+			console.log('[DummyAuthProvider] No matching session found, skipping removal');
+			return;
 		}
+
+		// Revoke tokens if supported
+		try {
+			if (stored.tokenResponse.refresh_token) {
+				await this._oauth2Service.revokeToken(stored.tokenResponse.refresh_token, 'refresh_token');
+			}
+			await this._oauth2Service.revokeToken(stored.tokenResponse.access_token, 'access_token');
+		} catch (error) {
+			console.warn('[DummyAuthProvider] Token revocation failed:', error);
+		}
+
+		// Clear stored token
+		await this._clearStoredToken();
+		console.log('[DummyAuthProvider] Token cleared from secrets');
+
+		// Verify it's cleared
+		const verify = await this._loadStoredToken();
+		console.log('[DummyAuthProvider] Verification after clear:', verify ? 'STILL EXISTS!' : 'Correctly cleared');
+
+		// Fire the change event
+		console.log('[DummyAuthProvider] Firing session removed event');
+		this._onDidChangeSessions.fire({
+			added: [],
+			removed: [{
+				id: sessionId,
+				accessToken: stored.tokenResponse.access_token,
+				account: {
+					id: stored.accountId,
+					label: stored.accountLabel
+				},
+				scopes: []
+			}],
+			changed: []
+		});
+	}
+
+	/**
+	 * Load stored token from secrets
+	 */
+	private async _loadStoredToken(): Promise<IStoredTokenData | undefined> {
+		try {
+			if (!this._context) {
+				console.error('[DummyAuthProvider] Context is undefined in _loadStoredToken');
+				return undefined;
+			}
+			const json = await this._context.secrets.get(this._secretsKey);
+			return json ? JSON.parse(json) : undefined;
+		} catch (error) {
+			console.error('[DummyAuthProvider] Failed to load token:', error);
+			return undefined;
+		}
+	}
+
+	/**
+	 * Save token to secrets
+	 */
+	private async _saveToken(tokenResponse: IAuthorizationTokenResponse, accountId: string, accountLabel: string): Promise<void> {
+		const data: IStoredTokenData = {
+			tokenResponse,
+			issuedAt: Date.now(),
+			sessionId: `dummy-session-${Date.now()}`,
+			accountId,
+			accountLabel
+		};
+		await this._context.secrets.store(this._secretsKey, JSON.stringify(data));
+	}
+
+	/**
+	 * Clear stored token
+	 */
+	private async _clearStoredToken(): Promise<void> {
+		await this._context.secrets.delete(this._secretsKey);
 	}
 }
