@@ -21,6 +21,7 @@ import { LogWorkspaceStateContribution } from '../../conversation/vscode-node/lo
 import { RemoteAgentContribution } from '../../conversation/vscode-node/remoteAgents';
 import { DiagnosticsContextContribution } from '../../diagnosticsContext/vscode/diagnosticsContextProvider';
 import { LanguageModelProxyContrib } from '../../externalAgents/vscode-node/lmProxyContrib';
+import { FeimaProvidersContribution } from '../../feimaProviders/vscode-node/feimaProvidersContribution';
 import { WalkthroughCommandContribution } from '../../getting-started/vscode-node/commands';
 import * as newWorkspaceContribution from '../../getting-started/vscode-node/newWorkspace.contribution';
 import { GitHubMcpContrib } from '../../githubMcp/vscode-node/githubMcp.contribution';
@@ -63,6 +64,7 @@ export const vscodeNodeContributions: IExtensionContributionFactory[] = [
 	...vscodeContributions,
 	asContributionFactory(ConversationFeature),
 	workspaceChunkSearchContribution,
+	asContributionFactory(FeimaProvidersContribution),
 	asContributionFactory(AuthenticationContrib),
 	chatBlockLanguageContribution,
 	asContributionFactory(LoggingActionsContrib),
