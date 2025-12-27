@@ -81,6 +81,7 @@
 	"activationEvents": [
 		"onStartupFinished",
 		"onLanguageModelChat:copilot",
+		"onLanguageModelAccess:feima",
 		"onUri",
 		"onFileSystem:ccreq",
 		"onFileSystem:ccsettings"
@@ -138,6 +139,12 @@
 		"contribEditorContentMenu"
 	],
 	"contributes": {
+		"authentication": [
+			{
+				"id": "feima-authentication",
+				"label": "Feima Auth"
+			}
+		],
 		"languageModelTools": [
 			{
 				"name": "copilot_searchCodebase",
@@ -1680,6 +1687,10 @@
 		],
 		"languageModelChatProviders": [
 			{
+				"vendor": "feima",
+				"displayName": "Feima Models"
+			},
+			{
 				"vendor": "copilot",
 				"displayName": "Copilot"
 			},
@@ -2362,6 +2373,26 @@
 				"title": "%github.copilot.command.applyCopilotCLIAgentSessionChanges%",
 				"icon": "$(git-stash-pop)",
 				"category": "GitHub Copilot"
+			},
+			{
+				"command": "feima.signIn",
+				"title": "Sign in with Feima",
+				"category": "Feima"
+			},
+			{
+				"command": "feima.signOut",
+				"title": "Sign Out",
+				"category": "Feima"
+			},
+			{
+				"command": "feima.listModels",
+				"title": "List Available Models",
+				"category": "Feima"
+			},
+			{
+				"command": "feima.checkContextKey",
+				"title": "Check Authentication Status",
+				"category": "Feima"
 			}
 		],
 		"configuration": [
@@ -3963,6 +3994,13 @@
 			}
 		],
 		"menus": {
+			"AccountsContext": [
+				{
+					"command": "feima.signIn",
+					"group": "1_accounts",
+					"when": "!github.copilot.feimaAuth.signedIn"
+				}
+			],
 			"editor/title": [
 				{
 					"command": "github.copilot.debug.generateInlineEditTests",
