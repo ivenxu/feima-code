@@ -37,7 +37,7 @@ import { IGithubAvailableEmbeddingTypesService } from '../common/githubAvailable
 import { IRerankerService } from '../common/rerankerService';
 import { IWorkspaceChunkSearchStrategy, StrategySearchResult, StrategySearchSizing, WorkspaceChunkQuery, WorkspaceChunkQueryWithEmbeddings, WorkspaceChunkSearchOptions, WorkspaceChunkSearchStrategyId, WorkspaceSearchAlert } from '../common/workspaceChunkSearch';
 import { CodeSearchChunkSearch, CodeSearchRemoteIndexState } from './codeSearch/codeSearchChunkSearch';
-import { BuildIndexTriggerReason, RepoStatus, TriggerIndexingError } from './codeSearch/repoManager';
+import { BuildIndexTriggerReason, CodeSearchRepoStatus, TriggerIndexingError } from './codeSearch/codeSearchRepo';
 import { EmbeddingsChunkSearch, LocalEmbeddingsIndexState, LocalEmbeddingsIndexStatus } from './embeddingsChunkSearch';
 import { FullWorkspaceChunkSearch } from './fullWorkspaceChunkSearch';
 import { TfidfChunkSearch } from './tfidfChunkSearch';
@@ -320,7 +320,7 @@ class WorkspaceChunkSearchServiceImpl extends Disposable implements IWorkspaceCh
 		}
 
 		const indexState = await this.getIndexState();
-		return (indexState.remoteIndexState.status === 'loaded' && indexState.remoteIndexState.repos.length > 0 && indexState.remoteIndexState.repos.every(repo => repo.status === RepoStatus.Ready))
+		return (indexState.remoteIndexState.status === 'loaded' && indexState.remoteIndexState.repos.length > 0 && indexState.remoteIndexState.repos.every(repo => repo.status === CodeSearchRepoStatus.Ready))
 			|| indexState.localIndexState.status === LocalEmbeddingsIndexStatus.Ready
 			|| await this._fullWorkspaceChunkSearch.mayBeAvailable(sizing);
 	}
@@ -505,7 +505,7 @@ class WorkspaceChunkSearchServiceImpl extends Disposable implements IWorkspaceCh
 		}
 
 		// Then try code search but fallback to local search on error or timeout
-		const codeSearchTimeout = this._simulationTestContext.isInSimulationTests ? 1_000_000 : 12_500;
+		const codeSearchTimeout = this._simulationTestContext.isInSimulationTests || this._codeSearchChunkSearch.isExternalIngestEnabled() ? 1_000_000 : 12_500;
 		return this.runSearchStrategyWithFallback(
 			this._codeSearchChunkSearch,
 			() => createCancelablePromise(token => this.doSearchFileChunksLocally(sizing, query, options, telemetryInfo, token)),
