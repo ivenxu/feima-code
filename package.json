@@ -143,7 +143,7 @@
 		"authentication": [
 			{
 				"id": "feima-authentication",
-				"label": "Feima Auth"
+				"label": "Feima"
 			}
 		],
 		"languageModelTools": [
@@ -2327,13 +2327,13 @@
 				"category": "GitHub Copilot"
 			},
 			{
-        "command": "github.copilot.chat.applyCopilotCLIAgentSessionChanges.apply",
+				"command": "github.copilot.chat.applyCopilotCLIAgentSessionChanges.apply",
 				"title": "%github.copilot.chat.applyCopilotCLIAgentSessionChanges.apply%",
 				"icon": "$(git-stash-pop)",
 				"category": "GitHub Copilot"
-      },
-      {	
-        "command": "feima.signIn",
+			},
+			{
+				"command": "feima.signIn",
 				"title": "Sign in with Feima",
 				"category": "Feima"
 			},
@@ -2354,6 +2354,56 @@
 			}
 		],
 		"configuration": [
+			{
+				"title": "Feima",
+				"id": "feima",
+				"properties": {
+					"feima.auth.baseUrl": {
+						"type": "string",
+						"default": "https://auth.feima.ai",
+						"markdownDescription": "The base URL for the Feima authentication server. Used to construct OAuth2 endpoints (`/oauth/authorize`, `/oauth/token`). Change this for enterprise deployments or local development."
+					},
+					"feima.auth.clientId": {
+						"type": "string",
+						"default": "vscode-feima-client",
+						"markdownDescription": "OAuth2 client ID for Feima authentication. This is a public identifier (no secret needed with PKCE)."
+					},
+					"feima.auth.issuer": {
+						"type": "string",
+						"default": "https://auth.feima.ai",
+						"markdownDescription": "OAuth2 issuer URL for Feima authentication. Typically the same as the auth base URL."
+					},
+					"feima.api.baseUrl": {
+						"type": "string",
+						"default": "https://api.feima.ai/v1",
+						"markdownDescription": "The base URL for the Feima API. Used for model discovery and other API operations. Change this for enterprise deployments or local development."
+					},
+					"feima.model.refreshInterval": {
+						"type": "number",
+						"default": 300,
+						"minimum": 60,
+						"maximum": 3600,
+						"markdownDescription": "How often (in seconds) to refresh the list of available models from Feima API. Default is 300 seconds (5 minutes)."
+					},
+					"feima.quota.showInStatusBar": {
+						"type": "boolean",
+						"default": true,
+						"markdownDescription": "Show quota usage in the status bar."
+					},
+					"feima.quota.alertThreshold": {
+						"type": "number",
+						"default": 0.8,
+						"minimum": 0.5,
+						"maximum": 0.99,
+						"markdownDescription": "Threshold (0.0-1.0) at which to show quota warning notifications. Default is 0.8 (80%)."
+					},
+					"feima.preferFeimaModels": {
+						"type": "boolean",
+						"default": true,
+						"markdownDescription": "Prefer Feima models over GitHub Copilot models when both are available. Set to false to prioritize GitHub Copilot models."
+					}
+				}
+			},
 			{
 				"title": "GitHub Copilot Chat",
 				"id": "stable",

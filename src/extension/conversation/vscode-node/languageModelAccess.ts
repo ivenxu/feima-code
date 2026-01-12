@@ -12,7 +12,7 @@ import { IBlockedExtensionService } from '../../../platform/chat/common/blockedE
 import { ChatFetchResponseType, ChatLocation, getErrorDetailsFromChatFetchError } from '../../../platform/chat/common/commonTypes';
 import { getTextPart } from '../../../platform/chat/common/globalStringUtils';
 import { EmbeddingType, getWellKnownEmbeddingTypeInfo, IEmbeddingsComputer } from '../../../platform/embeddings/common/embeddingsComputer';
-import { IEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
+import { IEndpointProvider, IGitHubEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
 import { CustomDataPartMimeTypes } from '../../../platform/endpoint/common/endpointTypes';
 import { ModelAliasRegistry } from '../../../platform/endpoint/common/modelAliasRegistry';
 import { encodeStatefulMarker } from '../../../platform/endpoint/common/statefulMarkerContainer';
@@ -55,7 +55,7 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 		@ILogService private readonly _logService: ILogService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IAuthenticationService private readonly _authenticationService: IAuthenticationService,
-		@IEndpointProvider private readonly _endpointProvider: IEndpointProvider,
+		@IGitHubEndpointProvider private readonly _endpointProvider: IEndpointProvider,
 		@IEmbeddingsComputer private readonly _embeddingsComputer: IEmbeddingsComputer,
 		@IVSCodeExtensionContext private readonly _vsCodeExtensionContext: IVSCodeExtensionContext,
 		@IAutomodeService private readonly _automodeService: IAutomodeService,
@@ -73,12 +73,8 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 
 		// initial
 		this.activationBlocker = Promise.all([
-			this._registerChatProvider().catch(err => {
-				this._logService.error('[LanguageModelAccess] Failed to register chat provider:', err);
-			}),
-			this._registerEmbeddings().catch(err => {
-				this._logService.error('[LanguageModelAccess] Failed to register embeddings:', err);
-			}),
+			this._registerChatProvider(),
+			this._registerEmbeddings(),
 		]).then(() => { });
 	}
 

@@ -904,6 +904,12 @@ export namespace ConfigKey {
 
 	export const BackgroundAgentEnabled = defineSetting<boolean>('chat.backgroundAgent.enabled', ConfigType.Simple, true);
 	export const CloudAgentEnabled = defineSetting<boolean>('chat.cloudAgent.enabled', ConfigType.Simple, true);
+
+	/** T089, T090: Feima-specific configuration */
+	export namespace Feima {
+		export const ApiEndpoint = defineSetting<string>('feima.api.endpoint', ConfigType.Simple, 'https://api.feima.ai/v1');
+		export const ModelRefreshInterval = defineSetting<number>('feima.model.refreshInterval', ConfigType.Simple, 300);
+	}
 }
 
 export function getAllConfigKeys(): string[] {

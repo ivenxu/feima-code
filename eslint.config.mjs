@@ -14,9 +14,6 @@ import path from 'path';
 import tseslint from 'typescript-eslint';
 import { fileURLToPath } from 'url';
 
-import headerEslint from 'eslint-plugin-header';
-headerEslint.rules.header.meta.schema = false;
-
 import * as localEslint from './.eslintplugin/index.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -46,7 +43,6 @@ export default tseslint.config(
 		},
 		plugins: {
 			'@stylistic': stylisticEslint,
-			'header': headerEslint,
 		},
 		rules: {
 			'indent': [
@@ -97,17 +93,7 @@ export default tseslint.config(
 				'context'
 			], // non-complete list of globals that are easy to access unintentionally
 			'no-var': 'error',
-			'semi': 'error',
-			'header/header': [
-				'error',
-				'block',
-				[
-					'---------------------------------------------------------------------------------------------',
-					' *  Copyright (c) Microsoft Corporation. All rights reserved.',
-					' *  Licensed under the MIT License. See License.txt in the project root for license information.',
-					' *--------------------------------------------------------------------------------------------'
-				]
-			]
+			'semi': 'error'
 		},
 		settings: {
 			'import/resolver': {

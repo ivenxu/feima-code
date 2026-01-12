@@ -47,7 +47,8 @@ import { ICompletionsLogTargetService, LogLevel } from './lib/src/logger';
 import { formatLogMessage } from './lib/src/logging/util';
 import { CompletionsFetcher, ICompletionsFetcherService } from './lib/src/networking';
 import { ExtensionNotificationSender, ICompletionsNotificationSender } from './lib/src/notificationSender';
-import { ICompletionsOpenAIFetcherService, LiveOpenAIFetcher } from './lib/src/openai/fetch';
+import { FeimaOpenAIFetcher } from './lib/src/openai/feimaFetch';
+import { ICompletionsOpenAIFetcherService } from './lib/src/openai/fetch';
 import { AvailableModelsManager, ICompletionsModelManagerService } from './lib/src/openai/model';
 import { ICompletionsStatusReporter } from './lib/src/progress';
 import {
@@ -108,7 +109,7 @@ export function createContext(serviceAccessor: ServicesAccessor, store: Disposab
 	serviceCollection.set(ICompletionsTelemetryUserConfigService, new SyncDescriptor(TelemetryUserConfig));
 	serviceCollection.set(ICompletionsRecentEditsProviderService, new SyncDescriptor(FullRecentEditsProvider, [undefined]));
 	serviceCollection.set(ICompletionsNotifierService, new SyncDescriptor(CompletionNotifier));
-	serviceCollection.set(ICompletionsOpenAIFetcherService, new SyncDescriptor(LiveOpenAIFetcher));
+	serviceCollection.set(ICompletionsOpenAIFetcherService, new SyncDescriptor(FeimaOpenAIFetcher));
 	serviceCollection.set(ICompletionsModelManagerService, new SyncDescriptor(AvailableModelsManager, [true]));
 	serviceCollection.set(ICompletionsAsyncManagerService, new SyncDescriptor(AsyncCompletionManager));
 	serviceCollection.set(ICompletionsContextProviderBridgeService, new SyncDescriptor(ContextProviderBridge));

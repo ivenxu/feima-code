@@ -27,6 +27,24 @@
 		{
 			"type": "extensionHost",
 			"request": "launch",
+			"name": "Launch Copilot Extension - No Debug",
+			"runtimeExecutable": "${execPath}",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}"
+			],
+			"smartStep": false,
+			"sourceMaps": false,
+			"envFile": "${workspaceFolder}/.env",
+			"env": {
+				"COPILOT_LOG_TELEMETRY": "true",
+			},
+			"presentation": {
+				"group": "0_launch"
+			}
+		},
+		{
+			"type": "extensionHost",
+			"request": "launch",
 			"name": "Launch Copilot Extension - Watch Mode",
 			"runtimeExecutable": "${execPath}",
 			"args": [
