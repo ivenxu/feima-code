@@ -1,16 +1,17 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 import { IFetcherService } from '../../../platform/networking/common/fetcherService';
 import { generateCodeChallenge, generateCodeVerifier, generateNonce, generateState } from '../../../util/common/pkce';
+import { createServiceIdentifier } from '../../../util/common/services';
 import {
 	getClaimsFromJWT,
 	IAuthorizationJWTClaims,
 	IAuthorizationServerMetadata,
 	IAuthorizationTokenResponse
 } from '../../../util/vs/base/common/oauth';
+import { IFeimaConfigService } from '../../feimaConfig/common/feimaConfigService';
 
 /**
  * Configuration for OAuth2 authentication
@@ -37,51 +38,128 @@ interface IOAuth2FlowState {
 	codeVerifier: string;
 	state: string;
 	nonce?: string;
+	redirectUri: string;
 	startedAt: number;
 }
 
 /**
+ * OAuth2 service interface for dependency injection
+ */
+export interface IOAuth2Service {
+	/**
+	 * Build authorization URL for OAuth2 flow
+	 */
+	buildAuthorizationUrl(redirectUri: string): Promise<string>;
+
+	/**
+	 * Validate OAuth callback parameters
+	 */
+	validateCallback(query: string): { code: string } | { error: string };
+
+	/**
+	 * Exchange authorization code for access token
+	 */
+	exchangeCodeForToken(code: string): Promise<IAuthorizationTokenResponse>;
+
+	/**
+	 * Refresh access token using refresh token
+	 */
+	refreshAccessToken(refreshToken: string): Promise<IAuthorizationTokenResponse>;
+
+	/**
+	 * Check if token needs refresh (within 5 minutes of expiration)
+	 */
+	shouldRefreshToken(tokenResponse: IAuthorizationTokenResponse): boolean;
+
+	/**
+	 * Extract user info from JWT token (if available)
+	 */
+	getUserInfo(tokenResponse: IAuthorizationTokenResponse): IAuthorizationJWTClaims | null | undefined;
+
+	/**
+	 * Revoke a token (access or refresh)
+	 */
+	revokeToken(token: string, tokenTypeHint: 'access_token' | 'refresh_token'): Promise<void>;
+}
+
+export const IOAuth2Service = createServiceIdentifier<IOAuth2Service>('oauth2Service');
+
+/**
  * OAuth2 service implementing authorization code flow with PKCE
  * Follows RFC 6749 (OAuth 2.0), RFC 7636 (PKCE), and OpenID Connect
+ *
+ * Dependencies are injected to ensure configuration is always up-to-date
  */
-export class OAuth2Service {
+export class OAuth2Service implements IOAuth2Service {
 	private _currentFlow: IOAuth2FlowState | undefined;
 
 	constructor(
-		private readonly _config: IOAuth2Config,
-		private readonly _fetcher: IFetcherService
+		@IFeimaConfigService private readonly _configService: IFeimaConfigService,
+		@IFetcherService private readonly _fetcher: IFetcherService
 	) { }
+
+	/**
+	 * Get current OAuth2 configuration from the config service
+	 */
+	private _getOAuth2Config(): IOAuth2Config {
+		const feimaConfig = this._configService.getConfig();
+		const endpoints = this._configService.getOAuth2Endpoints();
+
+		const serverMetadata: IAuthorizationServerMetadata = {
+			issuer: feimaConfig.issuer,
+			authorization_endpoint: endpoints.authorizationEndpoint,
+			token_endpoint: endpoints.tokenEndpoint,
+			revocation_endpoint: endpoints.revocationEndpoint,
+			response_types_supported: ['code'],
+			grant_types_supported: ['authorization_code', 'refresh_token'],
+			code_challenge_methods_supported: ['S256'],
+			scopes_supported: ['openid', 'email', 'profile']
+		};
+
+		return {
+			clientId: feimaConfig.clientId,
+			clientSecret: undefined, // Public client with PKCE
+			serverMetadata,
+			redirectUri: '',  // Will be set by caller (vscode.env.uriScheme transformation)
+			scopes: ['openid', 'email', 'profile'],
+			additionalAuthParams: {}
+		};
+	}
 
 	/**
 	 * Build authorization URL for OAuth2 flow
 	 */
-	async buildAuthorizationUrl(): Promise<string> {
+	async buildAuthorizationUrl(redirectUri: string): Promise<string> {
+		const config = this._getOAuth2Config();
+		config.redirectUri = redirectUri;
+
 		// Generate PKCE parameters
 		const codeVerifier = generateCodeVerifier();
 		const codeChallenge = await generateCodeChallenge(codeVerifier);
 
 		// Generate state and nonce
 		const state = generateState();
-		const nonce = this._config.scopes.includes('openid') ? generateNonce() : undefined;
+		const nonce = config.scopes.includes('openid') ? generateNonce() : undefined;
 
 		// Store flow state
 		this._currentFlow = {
 			codeVerifier,
 			state,
 			nonce,
+			redirectUri,
 			startedAt: Date.now()
 		};
 
 		// Build authorization URL
-		console.log('[OAuth2Service] Building authorization URL from endpoint:', this._config.serverMetadata.authorization_endpoint);
-		const authUrl = new URL(this._config.serverMetadata.authorization_endpoint!);
-		authUrl.searchParams.set('client_id', this._config.clientId);
+		console.log('[OAuth2Service] Building authorization URL from endpoint:', config.serverMetadata.authorization_endpoint);
+		const authUrl = new URL(config.serverMetadata.authorization_endpoint!);
+		authUrl.searchParams.set('client_id', config.clientId);
 		authUrl.searchParams.set('response_type', 'code');
-		authUrl.searchParams.set('redirect_uri', this._config.redirectUri);
+		authUrl.searchParams.set('redirect_uri', config.redirectUri);
 		authUrl.searchParams.set('state', state);
 		authUrl.searchParams.set('code_challenge', codeChallenge);
 		authUrl.searchParams.set('code_challenge_method', 'S256');
-		authUrl.searchParams.set('scope', this._config.scopes.join(' '));
+		authUrl.searchParams.set('scope', config.scopes.join(' '));
 		console.log('[OAuth2Service] Authorization URL constructed:', authUrl.toString());
 
 		if (nonce) {
@@ -89,8 +167,8 @@ export class OAuth2Service {
 		}
 
 		// Add additional parameters
-		if (this._config.additionalAuthParams) {
-			for (const [key, value] of Object.entries(this._config.additionalAuthParams)) {
+		if (config.additionalAuthParams) {
+			for (const [key, value] of Object.entries(config.additionalAuthParams)) {
 				authUrl.searchParams.set(key, value);
 			}
 		}
@@ -143,18 +221,20 @@ export class OAuth2Service {
 			throw new Error('No active OAuth2 flow');
 		}
 
+		const config = this._getOAuth2Config();
+
 		const body = new URLSearchParams();
 		body.append('grant_type', 'authorization_code');
-		body.append('client_id', this._config.clientId);
+		body.append('client_id', config.clientId);
 		body.append('code', code);
-		body.append('redirect_uri', this._config.redirectUri);
+		body.append('redirect_uri', this._currentFlow.redirectUri);
 		body.append('code_verifier', this._currentFlow.codeVerifier);
 
-		if (this._config.clientSecret) {
-			body.append('client_secret', this._config.clientSecret);
+		if (config.clientSecret) {
+			body.append('client_secret', config.clientSecret);
 		}
 
-		const response = await this._fetcher.fetch(this._config.serverMetadata.token_endpoint!, {
+		const response = await this._fetcher.fetch(config.serverMetadata.token_endpoint!, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/x-www-form-urlencoded',
@@ -178,16 +258,18 @@ export class OAuth2Service {
 	 * Refresh access token
 	 */
 	async refreshAccessToken(refreshToken: string): Promise<IAuthorizationTokenResponse> {
+		const config = this._getOAuth2Config();
+
 		const body = new URLSearchParams();
 		body.append('grant_type', 'refresh_token');
-		body.append('client_id', this._config.clientId);
+		body.append('client_id', config.clientId);
 		body.append('refresh_token', refreshToken);
 
-		if (this._config.clientSecret) {
-			body.append('client_secret', this._config.clientSecret);
+		if (config.clientSecret) {
+			body.append('client_secret', config.clientSecret);
 		}
 
-		const response = await this._fetcher.fetch(this._config.serverMetadata.token_endpoint!, {
+		const response = await this._fetcher.fetch(config.serverMetadata.token_endpoint!, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/x-www-form-urlencoded',
@@ -221,12 +303,12 @@ export class OAuth2Service {
 	/**
 	 * Extract user info from token response
 	 */
-	getUserInfo(tokenResponse: IAuthorizationTokenResponse): IAuthorizationJWTClaims | undefined {
+	getUserInfo(tokenResponse: IAuthorizationTokenResponse): IAuthorizationJWTClaims | null {
 		try {
 			const token = tokenResponse.id_token || tokenResponse.access_token;
-			return token ? getClaimsFromJWT(token) : undefined;
+			return token ? getClaimsFromJWT(token) : null;
 		} catch {
-			return undefined;
+			return null;
 		}
 	}
 
@@ -234,25 +316,27 @@ export class OAuth2Service {
 	 * Revoke token (if revocation endpoint is supported)
 	 */
 	async revokeToken(token: string, tokenTypeHint?: 'access_token' | 'refresh_token'): Promise<void> {
-		if (!this._config.serverMetadata.revocation_endpoint) {
+		const config = this._getOAuth2Config();
+
+		if (!config.serverMetadata.revocation_endpoint) {
 			console.warn('[OAuth2Service] Revocation endpoint not available');
 			return;
 		}
 
 		const body = new URLSearchParams();
 		body.append('token', token);
-		body.append('client_id', this._config.clientId);
+		body.append('client_id', config.clientId);
 
 		if (tokenTypeHint) {
 			body.append('token_type_hint', tokenTypeHint);
 		}
 
-		if (this._config.clientSecret) {
-			body.append('client_secret', this._config.clientSecret);
+		if (config.clientSecret) {
+			body.append('client_secret', config.clientSecret);
 		}
 
 		try {
-			const response = await this._fetcher.fetch(this._config.serverMetadata.revocation_endpoint, {
+			const response = await this._fetcher.fetch(config.serverMetadata.revocation_endpoint, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/x-www-form-urlencoded'

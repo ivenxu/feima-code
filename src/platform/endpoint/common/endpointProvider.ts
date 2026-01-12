@@ -143,4 +143,14 @@ export interface IEndpointProvider {
 	getEmbeddingsEndpoint(family?: EmbeddingsEndpointFamily): Promise<IEmbeddingsEndpoint>;
 }
 
-export const IEndpointProvider = createServiceIdentifier<IEndpointProvider>('IEndpointProvider');
+/**
+ * Service identifiers for different endpoint provider implementations:
+ * - IGitHubEndpointProvider: GitHub-only models (used by LanguageModelAccess)
+ * - IFeimaEndpointProvider: Feima-only models (used by FeimaModelProvider)
+ * - IEndpointProvider: Combined GitHub + Feima models (used by PromptFileContextService, etc.)
+ *
+ * All use the same IEndpointProvider interface but represent different service instances.
+ */
+export const IGitHubEndpointProvider = createServiceIdentifier<IEndpointProvider>('gitHubEndpointProvider');
+export const IFeimaEndpointProvider = createServiceIdentifier<IEndpointProvider>('feimaEndpointProvider');
+export const IEndpointProvider = createServiceIdentifier<IEndpointProvider>('endpointProvider');

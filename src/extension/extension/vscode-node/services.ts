@@ -8,6 +8,7 @@ import { IAuthenticationService } from '../../../platform/authentication/common/
 import { ICopilotTokenManager } from '../../../platform/authentication/common/copilotTokenManager';
 import { StaticGitHubAuthenticationService } from '../../../platform/authentication/common/staticGitHubAuthenticationService';
 import { createStaticGitHubTokenProvider, getOrCreateTestingCopilotTokenManager } from '../../../platform/authentication/node/copilotTokenManager';
+import { IFeimaAuthenticationService } from '../../../platform/authentication/node/feimaAuthenticationService';
 import { AuthenticationService } from '../../../platform/authentication/vscode-node/authenticationService';
 import { VSCodeCopilotTokenManager } from '../../../platform/authentication/vscode-node/copilotTokenManager';
 import { IChatAgentService } from '../../../platform/chat/common/chatAgents';
@@ -20,12 +21,15 @@ import { IDiffService } from '../../../platform/diff/common/diffService';
 import { DiffServiceImpl } from '../../../platform/diff/node/diffServiceImpl';
 import { ICAPIClientService } from '../../../platform/endpoint/common/capiClient';
 import { IDomainService } from '../../../platform/endpoint/common/domainService';
-import { IEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
+import { IEndpointProvider, IFeimaEndpointProvider, IGitHubEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
 import { AutomodeService, IAutomodeService } from '../../../platform/endpoint/node/automodeService';
 import { CAPIClientImpl } from '../../../platform/endpoint/node/capiClientImpl';
 import { DomainService } from '../../../platform/endpoint/node/domainServiceImpl';
+import { FeimaModelMetadataFetcher, IFeimaModelMetadataFetcher } from '../../../platform/endpoint/node/feimaModelMetadataFetcher';
 import { INativeEnvService, isScenarioAutomation } from '../../../platform/env/common/envService';
 import { NativeEnvServiceImpl } from '../../../platform/env/vscode-node/nativeEnvServiceImpl';
+import { IFeimaQuotaService } from '../../../platform/feima/common/feimaQuotaService';
+import { FeimaQuotaService } from '../../../platform/feima/node/feimaQuotaService';
 import { IGitCommitMessageService } from '../../../platform/git/common/gitCommitMessageService';
 import { IGitDiffService } from '../../../platform/git/common/gitDiffService';
 import { IGithubRepositoryService } from '../../../platform/github/common/githubService';
@@ -83,6 +87,10 @@ import { ChatAgentService } from '../../conversation/vscode-node/chatParticipant
 import { FeedbackReporter } from '../../conversation/vscode-node/feedbackReporter';
 import { IUserFeedbackService, UserFeedbackService } from '../../conversation/vscode-node/userActions';
 import { ConversationStore, IConversationStore } from '../../conversationStore/node/conversationStore';
+import { IOAuth2Service, OAuth2Service } from '../../feimaAuth/common/oauth2Service';
+import { FeimaAuthenticationService } from '../../feimaAuth/vscode-node/feimaAuthenticationService';
+import { IFeimaConfigService } from '../../feimaConfig/common/feimaConfigService';
+import { FeimaConfigService } from '../../feimaConfig/vscode-node/feimaConfigService';
 import { IIntentService, IntentService } from '../../intents/node/intentService';
 import { INewWorkspacePreviewContentManager, NewWorkspacePreviewContentManagerImpl } from '../../intents/node/newIntent';
 import { ITestGenInfoStorage, TestGenInfoStorage } from '../../intents/node/testIntent/testInfoStorage';
@@ -98,6 +106,7 @@ import { IPromptVariablesService } from '../../prompt/node/promptVariablesServic
 import { ITodoListContextProvider, TodoListContextProvider } from '../../prompt/node/todoListContextProvider';
 import { DevContainerConfigurationServiceImpl } from '../../prompt/vscode-node/devContainerConfigurationServiceImpl';
 import { ProductionEndpointProvider } from '../../prompt/vscode-node/endpointProviderImpl';
+import { CombinedEndpointProvider, FeimaOnlyEndpointProvider } from '../../prompt/vscode-node/feimaEndpointProvider';
 import { GitCommitMessageServiceImpl } from '../../prompt/vscode-node/gitCommitMessageServiceImpl';
 import { GitDiffService } from '../../prompt/vscode-node/gitDiffService';
 import { PromptVariablesServiceImpl } from '../../prompt/vscode-node/promptVariablesService';
@@ -159,13 +168,29 @@ export function registerServices(builder: IInstantiationServiceBuilder, extensio
 
 	if (isScenarioAutomation) {
 		builder.define(IAuthenticationService, new SyncDescriptor(StaticGitHubAuthenticationService, [createStaticGitHubTokenProvider()]));
-		builder.define(IEndpointProvider, new SyncDescriptor(ScenarioAutomationEndpointProviderImpl, [collectFetcherTelemetry]));
+		builder.define(IGitHubEndpointProvider, new SyncDescriptor(ScenarioAutomationEndpointProviderImpl, [collectFetcherTelemetry]));
+		builder.define(IFeimaEndpointProvider, new SyncDescriptor(FeimaOnlyEndpointProvider));
+		builder.define(IEndpointProvider, new SyncDescriptor(CombinedEndpointProvider));
 		builder.define(IIgnoreService, new SyncDescriptor(NullIgnoreService));
 	} else {
 		builder.define(IAuthenticationService, new SyncDescriptor(AuthenticationService));
-		builder.define(IEndpointProvider, new SyncDescriptor(ProductionEndpointProvider, [collectFetcherTelemetry]));
+		// Register all three endpoint provider interfaces:
+		// - IGitHubEndpointProvider: GitHub-only (for LanguageModelAccess)
+		// - IFeimaEndpointProvider: Feima-only (for FeimaModelProvider)
+		// - IEndpointProvider: Combined GitHub + Feima (for PromptFileContextService, etc.)
+		builder.define(IGitHubEndpointProvider, new SyncDescriptor(ProductionEndpointProvider, [collectFetcherTelemetry]));
+		builder.define(IFeimaEndpointProvider, new SyncDescriptor(FeimaOnlyEndpointProvider));
+		builder.define(IEndpointProvider, new SyncDescriptor(CombinedEndpointProvider));
+		// Register OAuth2Service and Feima authentication service (now fully injectable via DI)
+		builder.define(IOAuth2Service, new SyncDescriptor(OAuth2Service));
+		builder.define(IFeimaAuthenticationService, new SyncDescriptor(FeimaAuthenticationService));
 		builder.define(IIgnoreService, new SyncDescriptor(VsCodeIgnoreService));
 	}
+
+	// Register Feima services for dynamic model discovery and configuration
+	builder.define(IFeimaConfigService, new SyncDescriptor(FeimaConfigService));
+	builder.define(IFeimaQuotaService, new SyncDescriptor(FeimaQuotaService));
+	builder.define(IFeimaModelMetadataFetcher, new SyncDescriptor(FeimaModelMetadataFetcher));
 
 	builder.define(ITestGenInfoStorage, new SyncDescriptor(TestGenInfoStorage)); // Used for test generation (/tests intent)
 	builder.define(IParserService, new SyncDescriptor(ParserServiceImpl, [/*useWorker*/ true]));
