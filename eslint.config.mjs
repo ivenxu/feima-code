@@ -52,7 +52,11 @@ export default tseslint.config(
 					ignoredNodes: [
 						'SwitchCase',
 						'ClassDeclaration',
-						'TemplateLiteral *' // Conflicts with tsfmt
+						'TemplateLiteral *', // Conflicts with tsfmt
+						'CallExpression > ArrowFunctionExpression', // Conflicts with tsfmt
+						'CallExpression > ArrowFunctionExpression > BlockStatement', // Conflicts with tsfmt
+						'NewExpression > ArrowFunctionExpression', // Conflicts with tsfmt
+						'NewExpression > ArrowFunctionExpression > BlockStatement' // Conflicts with tsfmt
 					]
 				}
 			],
@@ -93,7 +97,8 @@ export default tseslint.config(
 				'context'
 			], // non-complete list of globals that are easy to access unintentionally
 			'no-var': 'error',
-			'semi': 'error'
+			'semi': 'error',
+			'header/header': 'off'
 		},
 		settings: {
 			'import/resolver': {
@@ -238,6 +243,10 @@ export default tseslint.config(
 						{
 							target: ['./test', '!./test/base/extHostContext/*.ts'],
 							from: ['**/vscode-node/**', '**/vscode-worker/**']
+						},
+						{
+							target: 'src/!(lib)/**',
+							from: './src/lib'
 						}
 					]
 				}

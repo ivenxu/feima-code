@@ -1,4 +1,3 @@
-/* eslint-disable header/header */
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
@@ -127,6 +126,8 @@ export interface DiffChange extends Change {
 	readonly deletions: number;
 }
 
+export type RepositoryKind = 'repository' | 'submodule' | 'worktree';
+
 export interface RepositoryState {
 	readonly HEAD: Branch | undefined;
 	readonly refs: Ref[];
@@ -223,6 +224,7 @@ export interface Repository {
 	readonly rootUri: Uri;
 	readonly inputBox: InputBox;
 	readonly state: RepositoryState;
+	readonly kind: RepositoryKind;
 	readonly ui: RepositoryUIState;
 
 	readonly onDidCommit: Event<void>;

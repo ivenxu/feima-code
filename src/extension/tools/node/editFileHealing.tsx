@@ -16,7 +16,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// eslint-disable-next-line header/header
 import { Raw } from '@vscode/prompt-tsx';
 import * as JSONC from 'jsonc-parser';
 import type { LanguageModelChat } from 'vscode';

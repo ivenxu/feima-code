@@ -6,7 +6,9 @@ import { IFeimaConfigService } from '../../../../../../extension/feimaConfig/com
 import { IAuthenticationService } from '../../../../../../platform/authentication/common/authentication';
 import { IFeimaAuthenticationService } from '../../../../../../platform/authentication/node/feimaAuthenticationService';
 import { IFeimaModelMetadataFetcher } from '../../../../../../platform/endpoint/node/feimaModelMetadataFetcher';
+import { IEnvService } from '../../../../../../platform/env/common/envService';
 import { ILogService } from '../../../../../../platform/log/common/logService';
+import { ICompletionsFetchService } from '../../../../../../platform/nesFetch/common/completionsFetchService';
 import { IInstantiationService } from '../../../../../../util/vs/platform/instantiation/common/instantiation';
 import { CancellationToken as ICancellationToken } from '../../../types/src';
 import { ICompletionsCopilotTokenManager } from '../auth/copilotTokenManager';
@@ -76,8 +78,10 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 		@ICompletionsCopilotTokenManager copilotTokenManager: ICompletionsCopilotTokenManager,
 		@ICompletionsStatusReporter statusReporter: ICompletionsStatusReporter,
 		@IAuthenticationService authenticationService: IAuthenticationService,
+		@ICompletionsFetchService fetchService: ICompletionsFetchService,
+		@IEnvService envService: IEnvService,
 	) {
-		super(instantiationService, runtimeModeService, logTargetService, copilotTokenManager, statusReporter, authenticationService);
+		super(instantiationService, runtimeModeService, logTargetService, copilotTokenManager, statusReporter, authenticationService, fetchService, envService);
 		this._instantiationService = instantiationService;
 	}
 
