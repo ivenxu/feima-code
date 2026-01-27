@@ -23,7 +23,7 @@
 	"icon": "assets/copilot.png",
 	"pricing": "Trial",
 	"engines": {
-		"vscode": "^1.109.0-20260121",
+		"vscode": "^1.109.0-20260124",
 		"npm": ">=9.0.0",
 		"node": ">=22.14.0"
 	},
@@ -115,13 +115,12 @@
 		"aiRelatedInformation",
 		"aiSettingsSearch",
 		"chatParticipantAdditions",
-		"chatEditing",
 		"defaultChatParticipant@4",
 		"contribSourceControlInputBoxMenu",
 		"authLearnMore",
 		"testObserver",
 		"aiTextSearchProvider@2",
-		"chatParticipantPrivate@11",
+		"chatParticipantPrivate@12",
 		"chatProvider@4",
 		"contribDebugCreateConfiguration",
 		"chatReferenceDiagnostic",
@@ -143,7 +142,8 @@
 		"contribEditorContentMenu",
 		"chatPromptFiles",
 		"mcpServerDefinitions",
-		"tabInputMultiDiff"
+		"tabInputMultiDiff",
+		"workspaceTrust"
 	],
 	"contributes": {
 		"authentication": [
@@ -1206,6 +1206,11 @@
 												"label"
 											]
 										}
+									},
+									"allowFreeformInput": {
+										"type": "boolean",
+										"description": "When true, allows user to enter free-form text in addition to selecting options. Use when the user's opinion or custom input would be valuable.",
+										"default": false
 									}
 								},
 								"required": [
@@ -1225,7 +1230,7 @@
 				"toolReferenceName": "switchAgent",
 				"displayName": "%copilot.tools.switchAgent.name%",
 				"userDescription": "%copilot.tools.switchAgent.description%",
-				"modelDescription": "Switch to a different agent mode. Use this tool when you determine that the current task would be better handled by a different agent mode.\n\nCurrently supported agents:\n- 'Plan': Switch to Plan mode when the task requires careful planning before implementation. Use Plan mode when:\n  - The task is complex and requires multiple steps\n  - You need to explore the codebase and design an implementation approach\n  - The user would benefit from reviewing and approving a plan before you make changes\n  - The task involves architectural decisions or significant code modifications\n\nAfter calling this tool, the conversation will continue in the new agent mode.",
+				"modelDescription": "Switch to Plan mode to collaborate with the user on defining and refining the approach before implementing changes.\n\nYou should eagerly and IMMEDIATELY use this tool when:\n- The user's request is ambiguous, underspecified, or could be interpreted multiple ways\n- You need to explore the codebase to understand the architecture before making changes\n- The task involves multiple files, complex refactoring, or architectural decisions\n- You want to propose an approach and get user feedback before proceeding\n- The user explicitly asks for a plan or wants to discuss the approach first\n\nDo NOT use this tool when:\n- The task is straightforward and well-defined\n- You already have sufficient context to implement the change confidently\n- The user has explicitly asked you to just make the change\n\nAfter calling this tool, you will enter Plan mode where you can research the codebase, propose a plan, and iterate with the user before implementation.",
 				"icon": "$(arrow-swap)",
 				"inputSchema": {
 					"type": "object",
@@ -1873,6 +1878,23 @@
 						},
 						"models": {
 							"type": "array",
+							"defaultSnippets": [
+								{
+									"label": "New Model",
+									"description": "Add a new custom model configuration",
+									"body": [
+										{
+											"id": "$1",
+											"name": "$2",
+											"url": "$3",
+											"toolCalling": "^${4|true,false|}",
+											"vision": "^${5|true,false|}",
+											"maxInputTokens": "^${6:128000}",
+											"maxOutputTokens": "^${7:16000}"
+										}
+									]
+								}
+							],
 							"items": {
 								"type": "object",
 								"properties": {
@@ -1936,6 +1958,7 @@
 									}
 								},
 								"required": [
+									"id",
 									"name",
 									"url",
 									"toolCalling",
@@ -1962,6 +1985,23 @@
 						},
 						"models": {
 							"type": "array",
+							"defaultSnippets": [
+								{
+									"label": "New Model",
+									"description": "Add a new custom model configuration",
+									"body": [
+										{
+											"id": "$1",
+											"name": "$2",
+											"url": "$3",
+											"toolCalling": "^${4|true,false|}",
+											"vision": "^${5|true,false|}",
+											"maxInputTokens": "^${6:128000}",
+											"maxOutputTokens": "^${7:16000}"
+										}
+									]
+								}
+							],
 							"items": {
 								"type": "object",
 								"properties": {
@@ -2012,6 +2052,7 @@
 									}
 								},
 								"required": [
+									"id",
 									"name",
 									"url",
 									"toolCalling",
@@ -2114,6 +2155,12 @@
 				"command": "github.copilot.cli.sessions.resumeInTerminal",
 				"title": "%github.copilot.command.cli.sessions.resumeInTerminal%",
 				"icon": "$(terminal)",
+				"category": "Copilot CLI"
+			},
+			{
+				"command": "github.copilot.cli.sessions.openRepository",
+				"title": "%github.copilot.command.cli.sessions.openRepository%",
+				"icon": "$(folder-opened)",
 				"category": "Copilot CLI"
 			},
 			{
@@ -3012,6 +3059,22 @@
 							"preview"
 						],
 						"markdownDescription": "%github.copilot.config.codesearch.enabled%"
+					},
+					"github.copilot.chat.claudeAgent.enabled": {
+						"type": "boolean",
+						"default": true,
+						"markdownDescription": "%github.copilot.config.claudeAgent.enabled%",
+						"tags": [
+							"preview"
+						]
+					},
+					"github.copilot.chat.claudeAgent.allowDangerouslySkipPermissions": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%github.copilot.config.claudeAgent.allowDangerouslySkipPermissions%",
+						"tags": [
+							"preview"
+						]
 					}
 				}
 			},
@@ -3072,22 +3135,6 @@
 							"onExp"
 						],
 						"markdownDescription": "%github.copilot.config.imageUpload.enabled%"
-					},
-					"github.copilot.chat.edits.suggestRelatedFilesFromGitHistory": {
-						"type": "boolean",
-						"default": true,
-						"tags": [
-							"experimental"
-						],
-						"markdownDescription": "%github.copilot.config.edits.suggestRelatedFilesFromGitHistory%"
-					},
-					"github.copilot.chat.edits.suggestRelatedFilesForTests": {
-						"type": "boolean",
-						"default": true,
-						"tags": [
-							"experimental"
-						],
-						"markdownDescription": "%github.copilot.chat.edits.suggestRelatedFilesForTests%"
 					},
 					"github.copilot.chat.codeGeneration.instructions": {
 						"markdownDeprecationMessage": "%github.copilot.config.codeGeneration.instructions.deprecated%",
@@ -3504,6 +3551,15 @@
 						],
 						"description": "%github.copilot.config.alternateGeminiModelFPrompt.enabled%"
 					},
+					"github.copilot.chat.alternateZaiPrompt.enabled": {
+						"type": "boolean",
+						"default": false,
+						"tags": [
+							"experimental",
+							"onExp"
+						],
+						"description": "%github.copilot.config.alternateZaiPrompt.enabled%"
+					},
 					"github.copilot.chat.anthropic.useMessagesApi": {
 						"type": "boolean",
 						"default": true,
@@ -3524,7 +3580,7 @@
 					},
 					"github.copilot.chat.anthropic.toolSearchTool.enabled": {
 						"type": "boolean",
-						"default": false,
+						"default": true,
 						"markdownDescription": "%github.copilot.config.anthropic.toolSearchTool.enabled%",
 						"tags": [
 							"experimental",
@@ -3687,6 +3743,15 @@
 						"default": "",
 						"scope": "resource",
 						"markdownDescription": "%github.copilot.config.planAgent.model%",
+						"tags": [
+							"experimental"
+						]
+					},
+					"github.copilot.chat.implementAgent.model": {
+						"type": "string",
+						"default": "",
+						"scope": "resource",
+						"markdownDescription": "%github.copilot.config.implementAgent.model%",
 						"tags": [
 							"experimental"
 						]
@@ -4137,26 +4202,6 @@
 							"onExp"
 						]
 					},
-					"github.copilot.chat.claudeCode.enabled": {
-						"type": [
-							"boolean",
-							"string"
-						],
-						"default": false,
-						"markdownDescription": "%github.copilot.config.claudeCode.enabled%",
-						"tags": [
-							"advanced",
-							"experimental"
-						]
-					},
-					"github.copilot.chat.claudeAgent.allowDangerouslySkipPermissions": {
-						"type": "boolean",
-						"default": false,
-						"markdownDescription": "%github.copilot.config.claudeAgent.allowDangerouslySkipPermissions%",
-						"tags": [
-							"advanced"
-						]
-					},
 					"github.copilot.chat.gpt5AlternativePatch": {
 						"type": "boolean",
 						"default": false,
@@ -4217,15 +4262,6 @@
 							"advanced",
 							"experimental",
 							"onExp"
-						]
-					},
-					"github.copilot.chat.suggestRelatedFilesFromGitHistory.useEmbeddings": {
-						"type": "boolean",
-						"default": false,
-						"markdownDescription": "%github.copilot.config.suggestRelatedFilesFromGitHistory.useEmbeddings%",
-						"tags": [
-							"advanced",
-							"experimental"
 						]
 					},
 					"github.copilot.chat.cli.customAgents.enabled": {
@@ -4585,6 +4621,10 @@
 				},
 				{
 					"command": "github.copilot.cli.sessions.resumeInTerminal",
+					"when": "false"
+				},
+				{
+					"command": "github.copilot.cli.sessions.openRepository",
 					"when": "false"
 				},
 				{
@@ -5314,7 +5354,7 @@
 				"inputPlaceholder": "Run local tasks with Claude, type `#` for adding context",
 				"order": 3,
 				"description": "The Claude Agent works on your local machine",
-				"when": "config.github.copilot.chat.claudeCode.enabled",
+				"when": "config.github.copilot.chat.claudeAgent.enabled && !github.copilot.previewFeaturesDisabled",
 				"canDelegate": true,
 				"capabilities": {
 					"supportsFileAttachments": true
@@ -5436,9 +5476,10 @@
 		"chatAgents": [],
 		"chatPromptFiles": [
 			{
-				"name": "savePrompt",
-				"path": "./assets/prompts/savePrompt.prompt.md",
-				"description": "Generalize the current discussion into a reusable prompt and save it as a file"
+				"path": "./assets/prompts/savePrompt.prompt.md"
+			},
+			{
+				"path": "./assets/prompts/plan.prompt.md"
 			}
 		]
 	},

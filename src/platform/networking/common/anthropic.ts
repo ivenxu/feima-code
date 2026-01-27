@@ -87,6 +87,14 @@ export const nonDeferredToolNames = new Set([
 	// Other high-usage tools
 	'get_errors',
 	'manage_todo_list',
+	// Subagent tools
+	'runSubagent',
+	'search_subagent',
+	// Testing
+	'runTests',
+	// Misc
+	'ask_questions',
+	'switch_agent',
 ]);
 
 export const TOOL_SEARCH_TOOL_NAME = 'tool_search_tool_regex';
