@@ -69,7 +69,7 @@ export interface IOAuth2Service {
 	/**
 	 * Check if token needs refresh (within 5 minutes of expiration)
 	 */
-	shouldRefreshToken(tokenResponse: IAuthorizationTokenResponse): boolean;
+	shouldRefreshToken(tokenResponse: IAuthorizationTokenResponse, bufferSeconds?: number): boolean;
 
 	/**
 	 * Extract user info from JWT token (if available)
@@ -291,13 +291,25 @@ export class OAuth2Service implements IOAuth2Service {
 	 */
 	shouldRefreshToken(tokenResponse: IAuthorizationTokenResponse, bufferSeconds: number = 300): boolean {
 		if (!tokenResponse.expires_in) {
+			console.debug('[OAuth2Service] shouldRefreshToken: false - no expires_in field');
 			return false;
 		}
 
-		// Calculate expiration (assuming token was just received)
-		const expiresAt = Date.now() + (tokenResponse.expires_in * 1000);
+		// IAuthorizationTokenResponse doesn't have issued_at, so we need it passed separately
+		// This will be handled by the caller (FeimaAuthenticationService)
+		console.warn('[OAuth2Service] shouldRefreshToken called without issued_at timestamp - assuming current time');
+		const assumedIssuedAt = Date.now();
+
+		// Calculate expiration time from when token was issued (or assumed issued time)
+		const expiresAt = assumedIssuedAt + (tokenResponse.expires_in * 1000);
 		const now = Date.now();
-		return expiresAt < (now + bufferSeconds * 1000);
+		const timeUntilExpiry = expiresAt - now;
+		const bufferMs = bufferSeconds * 1000;
+		const needsRefresh = timeUntilExpiry < bufferMs;
+
+		console.debug(`[OAuth2Service] shouldRefreshToken: ${needsRefresh} - assumedIssuedAt=${new Date(assumedIssuedAt).toISOString()}, expiresAt=${new Date(expiresAt).toISOString()}, now=${new Date(now).toISOString()}, timeUntilExpiry=${Math.round(timeUntilExpiry / 1000)}s, buffer=${bufferSeconds}s`);
+
+		return needsRefresh;
 	}
 
 	/**

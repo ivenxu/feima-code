@@ -55,17 +55,17 @@ export class FeimaModelProvider implements vscode.LanguageModelChatProvider {
 	): Promise<vscode.LanguageModelChatInformation[]> {
 		this.logService.debug('[FeimaModelProvider] provideLanguageModelChatInformation called');
 
-		// Check if user is authenticated with Feima
-		const isAuthenticated = await this.authService.isAuthenticated();
-		if (!isAuthenticated) {
-			this.logService.debug('[FeimaModelProvider] Feima not authenticated - returning empty models');
-			this._chatEndpoints = [];
-			return [];
-		}
-
-		this.logService.debug('[FeimaModelProvider] Feima authenticated - fetching endpoints');
-
 		try {
+			// Check if user is authenticated with Feima
+			const isAuthenticated = await this.authService.isAuthenticated();
+			if (!isAuthenticated) {
+				this.logService.debug('[FeimaModelProvider] Feima not authenticated - returning empty models');
+				this._chatEndpoints = [];
+				return [];
+			}
+
+			this.logService.debug('[FeimaModelProvider] Feima authenticated - fetching endpoints');
+
 			// Get Feima-only endpoints from endpoint provider (no filtering needed)
 			const feimaEndpoints = await this.endpointProvider.getAllChatEndpoints();
 
@@ -78,11 +78,11 @@ export class FeimaModelProvider implements vscode.LanguageModelChatProvider {
 			const languageModels: vscode.LanguageModelChatInformation[] = [];
 
 			for (const endpoint of feimaEndpoints) {
-				// Prepare model detail (multiplier if present)
-				const modelDetail = endpoint.multiplier !== undefined ? `${endpoint.multiplier}x` : undefined;
+				// Prepare model detail (multiplier if present, "Free" for multiplier 0)
+				const modelDetail = endpoint.multiplier === 0 ? 'Free' : (endpoint.multiplier !== undefined ? `${endpoint.multiplier}x` : undefined);
 
-				// Prepare tooltip (degradation reason if present, otherwise use endpoint description)
-				const modelTooltip = endpoint.degradationReason || `${endpoint.name} (${endpoint.version})`;
+				// Prepare tooltip (degradation reason if present, otherwise undefined)
+				const modelTooltip = endpoint.degradationReason;
 
 				// Prepare category for Feima models
 				const modelCategory = { label: 'Feima Models', order: 0 };
@@ -90,6 +90,15 @@ export class FeimaModelProvider implements vscode.LanguageModelChatProvider {
 				// Use authService to check authentication (non-blocking cached check)
 				const isAuthenticated = await this.authService.isAuthenticated();
 				const requiresAuthorization = isAuthenticated ? { label: 'Feima User' } : undefined;
+
+				// Prepare status icon (only if degradation reason exists and ThemeIcon is available)
+				let statusIcon: vscode.ThemeIcon | undefined;
+				try {
+					statusIcon = endpoint.degradationReason ? new vscode.ThemeIcon('warning') : undefined;
+				} catch {
+					// ThemeIcon may not be available in test environment
+					statusIcon = undefined;
+				}
 
 				const model: vscode.LanguageModelChatInformation = {
 					id: endpoint.model,
@@ -99,7 +108,7 @@ export class FeimaModelProvider implements vscode.LanguageModelChatProvider {
 					tooltip: modelTooltip,
 					detail: modelDetail,
 					category: modelCategory,
-					statusIcon: endpoint.degradationReason ? new vscode.ThemeIcon('warning') : undefined,
+					statusIcon,
 					maxInputTokens: endpoint.modelMaxPromptTokens,
 					maxOutputTokens: endpoint.maxOutputTokens,
 					requiresAuthorization,
@@ -119,7 +128,7 @@ export class FeimaModelProvider implements vscode.LanguageModelChatProvider {
 		} catch (error) {
 			this.logService.error(
 				error instanceof Error ? error : new Error(String(error)),
-				'[FeimaModelProvider] Failed to fetch endpoints'
+				'[FeimaModelProvider] Failed to provide language model information'
 			);
 			this._chatEndpoints = [];
 			return [];

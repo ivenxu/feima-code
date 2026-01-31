@@ -8,7 +8,7 @@ import { IInstantiationService } from '../../../util/vs/platform/instantiation/c
 import { IAuthenticationService } from '../../authentication/common/authentication';
 import { IFeimaAuthenticationService } from '../../authentication/node/feimaAuthenticationService';
 import { IChatMLFetcher, Source } from '../../chat/common/chatMLFetcher';
-import { ChatLocation, ChatResponse } from '../../chat/common/commonTypes';
+import { ChatLocation, ChatResponse, ChatFetchResponseType } from '../../chat/common/commonTypes';
 import { IConfigurationService } from '../../configuration/common/configurationService';
 import { IEnvService } from '../../env/common/envService';
 import { ILogService } from '../../log/common/logService';
@@ -131,7 +131,7 @@ export class FeimaChatEndpoint extends ChatEndpoint {
 		}
 
 		// Call parent's makeChatRequest with fresh token in place
-		return super.makeChatRequest(
+		const result = await super.makeChatRequest(
 			debugName,
 			messages,
 			finishedCb,
@@ -142,5 +142,19 @@ export class FeimaChatEndpoint extends ChatEndpoint {
 			userInitiatedRequest,
 			telemetryProperties
 		);
+
+		// Handle token expiration errors by clearing the session
+		// This will trigger VS Code to prompt for re-authentication
+		if (result.type === ChatFetchResponseType.BadRequest &&
+			(result.reason.includes('token expired or invalid') || result.reason.includes('401'))) {
+			this._logService.warn('[FeimaChatEndpoint] Token expired, clearing session to trigger re-auth');
+			try {
+				await this.feimaAuthService.signOut();
+			} catch (error) {
+				this._logService.error(error, '[FeimaChatEndpoint] Failed to clear session on token error');
+			}
+		}
+
+		return result;
 	}
 }
