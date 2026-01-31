@@ -8,7 +8,9 @@ import { IFeimaAuthenticationService } from '../../../../../../platform/authenti
 import { IFeimaModelMetadataFetcher } from '../../../../../../platform/endpoint/node/feimaModelMetadataFetcher';
 import { IEnvService } from '../../../../../../platform/env/common/envService';
 import { ILogService } from '../../../../../../platform/log/common/logService';
+import { IFetcherService } from '../../../../../../platform/networking/common/fetcherService';
 import { ICompletionsFetchService } from '../../../../../../platform/nesFetch/common/completionsFetchService';
+import { CancellationToken } from '../../../../../../util/vs/base/common/cancellation';
 import { IInstantiationService } from '../../../../../../util/vs/platform/instantiation/common/instantiation';
 import { CancellationToken as ICancellationToken } from '../../../types/src';
 import { ICompletionsCopilotTokenManager } from '../auth/copilotTokenManager';
@@ -71,6 +73,7 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 		@IFeimaConfigService private readonly feimaConfig: IFeimaConfigService,
 		@IFeimaModelMetadataFetcher private readonly feimaModelFetcher: IFeimaModelMetadataFetcher,
 		@ILogService private readonly feimaLogService: ILogService,
+		@IFetcherService private readonly feimaFetcherService: IFetcherService,
 		// Parent class parameters (LiveOpenAIFetcher)
 		@IInstantiationService instantiationService: IInstantiationService,
 		@ICompletionsRuntimeModeService runtimeModeService: ICompletionsRuntimeModeService,
@@ -81,6 +84,7 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 		@ICompletionsFetchService fetchService: ICompletionsFetchService,
 		@IEnvService envService: IEnvService,
 	) {
+		feimaLogService.trace(`[FeimaOpenAIFetcher] Constructor called`);
 		super(instantiationService, runtimeModeService, logTargetService, copilotTokenManager, statusReporter, authenticationService, fetchService, envService);
 		this._instantiationService = instantiationService;
 	}
@@ -101,11 +105,14 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 		cancel?: ICancellationToken
 	): Promise<CompletionResults | CompletionError> {
 
+		const mappedModelId = this._mapModelForFeimaPreference(params.engineModelId);
+		this.feimaLogService.trace(`[FeimaOpenAIFetcher] fetchAndStreamCompletions called for model ${mappedModelId} (original: ${params.engineModelId})`);
+
 		// Check if model is from Feima (via cached model list)
-		const isFeima = this.feimaModelFetcher.isFeimaModel(params.engineModelId);
+		const isFeima = this.feimaModelFetcher.isFeimaModel(mappedModelId);
 
 		if (isFeima) {
-			this.feimaLogService.trace(`[FeimaOpenAIFetcher] Model ${params.engineModelId} identified as Feima model`);
+			this.feimaLogService.trace(`[FeimaOpenAIFetcher] Model ${mappedModelId} identified as Feima model`);
 
 			// Check Feima authentication
 			const isAuthenticated = await this.feimaAuth.isAuthenticated();
@@ -115,7 +122,7 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 			} else {
 				// Try Feima API
 				try {
-					return await this.fetchFromFeima(params, baseTelemetryData, finishedCb, cancel);
+					return await this.fetchFromFeima(params, baseTelemetryData, finishedCb, cancel, mappedModelId);
 				} catch (error) {
 					this.feimaLogService.error(`[FeimaOpenAIFetcher] Feima API call failed: ${error instanceof Error ? error.message : String(error)}`);
 					// Fall through to GitHub fallback
@@ -124,8 +131,48 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 		}
 
 		// Use GitHub API (parent logic)
-		this.feimaLogService.trace(`[FeimaOpenAIFetcher] Using GitHub API for model ${params.engineModelId}`);
+		this.feimaLogService.trace(`[FeimaOpenAIFetcher] Using GitHub API for model ${mappedModelId}`);
 		return super.fetchAndStreamCompletions(params, baseTelemetryData, finishedCb, cancel);
+	}
+
+	/**
+	 * Override to route requests between Feima and GitHub APIs for fetchAndStreamCompletions2
+	 */
+	override async fetchAndStreamCompletions2(
+		params: CompletionParams,
+		baseTelemetryData: TelemetryWithExp,
+		finishedCb: FinishedCallback,
+		cancel: CancellationToken
+	): Promise<CompletionResults | CompletionError> {
+
+		const mappedModelId = this._mapModelForFeimaPreference(params.engineModelId);
+		this.feimaLogService.trace(`[FeimaOpenAIFetcher] fetchAndStreamCompletions2 called for model ${mappedModelId} (original: ${params.engineModelId})`);
+
+		// Check if model is from Feima (via cached model list)
+		const isFeima = this.feimaModelFetcher.isFeimaModel(mappedModelId);
+
+		if (isFeima) {
+			this.feimaLogService.trace(`[FeimaOpenAIFetcher] Model ${mappedModelId} identified as Feima model`);
+
+			// Check Feima authentication
+			const isAuthenticated = await this.feimaAuth.isAuthenticated();
+			if (!isAuthenticated) {
+				this.feimaLogService.warn(`[FeimaOpenAIFetcher] Feima model requested but not authenticated, falling back to GitHub`);
+				// Fall through to GitHub
+			} else {
+				// Try Feima API
+				try {
+					return await this.fetchFromFeima(params, baseTelemetryData, finishedCb, cancel, mappedModelId);
+				} catch (error) {
+					this.feimaLogService.error(`[FeimaOpenAIFetcher] Feima API call failed: ${error instanceof Error ? error.message : String(error)}`);
+					// Fall through to GitHub fallback
+				}
+			}
+		}
+
+		// Use GitHub API (parent logic)
+		this.feimaLogService.trace(`[FeimaOpenAIFetcher] Using GitHub API for model ${mappedModelId}`);
+		return super.fetchAndStreamCompletions2(params, baseTelemetryData, finishedCb, cancel);
 	}
 
 	/**
@@ -134,12 +181,16 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 	 * Calls Feima's OpenAI-compatible completion endpoint with SSE streaming.
 	 * The Feima API returns responses in OpenAI format, allowing direct integration
 	 * with the existing SSE processing infrastructure.
+	 *
+	 * Uses the platform's IFetcherService to ensure proper Response type with
+	 * DestroyableStream that supports both pipeThrough() and destroy() methods.
 	 */
 	private async fetchFromFeima(
 		params: CompletionParams,
 		baseTelemetryData: TelemetryWithExp,
 		finishedCb: FinishedCallback,
-		cancel?: ICancellationToken
+		cancel?: CancellationToken,
+		mappedModelId?: string
 	): Promise<CompletionResults | CompletionError> {
 
 		// 1. Validate JWT token
@@ -154,13 +205,14 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 
 		// 2. Build request and call Feima API
 		const config = this.feimaConfig.getConfig();
-		const feimaRequest = this.buildFeimaCompletionRequest(params);
+		const feimaRequest = this.buildFeimaCompletionRequest(params, mappedModelId);
 		const url = `${config.apiBaseUrl}/completions`;
 
-		this.feimaLogService.info(`[FeimaOpenAIFetcher] Calling Feima API: ${url} for model ${params.engineModelId}`);
+		this.feimaLogService.info(`[FeimaOpenAIFetcher] Calling Feima API: ${url} for model ${mappedModelId || params.engineModelId}`);
 
 		try {
-			const response = await fetch(url, {
+			// Use IFetcherService to get proper Response with DestroyableStream
+			const response = await this.feimaFetcherService.fetch(url, {
 				method: 'POST',
 				headers: {
 					'Authorization': `Bearer ${token}`,
@@ -181,18 +233,22 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 
 			// Check for cancellation
 			if (cancel?.isCancellationRequested) {
-				if (response.body) {
-					void response.body.cancel();
+				this.feimaLogService.trace('[FeimaOpenAIFetcher] Request cancelled before processing');
+				// Clean up stream
+				try {
+					await response.body.destroy();
+				} catch (e) {
+					this.feimaLogService.warn(`[FeimaOpenAIFetcher] Error destroying stream on cancellation: ${e}`);
 				}
-				return { type: 'canceled', reason: 'after fetch request' };
+				return { type: 'canceled', reason: 'before stream processing' };
 			}
 
-			// Convert fetch Response to networking Response format and use existing SSEProcessor
-			const adaptedResponse = this.adaptFetchResponse(response);
+			// Response.body is now a DestroyableStream with pipeThrough() and destroy()
+			this.feimaLogService.trace('[FeimaOpenAIFetcher] Creating SSE processor with response');
 			const processor = await this._instantiationService.invokeFunction(
 				SSEProcessor.create,
 				params.count,
-				adaptedResponse,
+				response as unknown as NetworkingResponse,
 				baseTelemetryData,
 				[],
 				cancel
@@ -221,25 +277,37 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 	/**
 	 * Adapt fetch Response to networking Response format
 	 *
-	 * SSEProcessor expects a Response object with specific methods.
-	 * This adapter wraps the fetch Response to match the expected interface.
+	 * NOTE: This method is currently unused. Modern Node.js (18+) with undici provides
+	 * a fetch() implementation where response.body is already a Web ReadableStream
+	 * compatible with pipeThrough() and other Web Streams API methods.
 	 *
-	 * CRITICAL: SSEProcessor expects a Node.js ReadableStream with setEncoding(),
-	 * but fetch() returns a Web ReadableStream. We need to convert it.
+	 * Keeping this for reference in case we need special handling for older Node versions
+	 * or different environments.
 	 */
+	/*
 	private adaptFetchResponse(response: Response): NetworkingResponse {
+		this.feimaLogService.trace('[FeimaOpenAIFetcher] Adapting fetch response to networking format');
+
 		// Import Readable from Node.js stream module
 		const { Readable } = require('stream');
 
-		// Convert Web ReadableStream to Node.js Readable
-		const webStream = response.body;
-		if (!webStream) {
+		// Convert response body to Node.js Readable stream
+		const body = response.body;
+		if (!body) {
 			throw new Error('Response body is null');
 		}
 
-		// Create a Node.js Readable that reads from the Web ReadableStream
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const nodeStream = Readable.fromWeb(webStream as any);
+		// In Node.js, undici's fetch may return different stream types
+		// Readable.fromWeb() safely converts Web ReadableStreams to Node.js Readable
+		let nodeStream: typeof Readable;
+		try {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			nodeStream = Readable.fromWeb(body as any);
+			this.feimaLogService.trace('[FeimaOpenAIFetcher] Successfully converted response body to Node.js Readable');
+		} catch (error) {
+			this.feimaLogService.error(`[FeimaOpenAIFetcher] Failed to convert response body: ${error instanceof Error ? error.message : String(error)}`);
+			throw new Error(`Failed to convert response body to Node.js stream: ${error}`);
+		}
 
 		return {
 			status: response.status,
@@ -248,16 +316,16 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 				get: (name: string) => response.headers.get(name),
 			},
 			body: () => nodeStream,
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} as any as NetworkingResponse;
+		} as unknown as NetworkingResponse;
 	}
+	*/
 
 	/**
 	 * Build Feima completion request in OpenAI-compatible format
 	 */
-	private buildFeimaCompletionRequest(params: CompletionParams): FeimaCompletionRequest {
+	private buildFeimaCompletionRequest(params: CompletionParams, mappedModelId?: string): FeimaCompletionRequest {
 		return {
-			model: params.engineModelId,
+			model: mappedModelId || params.engineModelId,
 			prompt: params.prompt.prefix,
 			suffix: params.prompt.suffix,
 			max_tokens: params.postOptions?.max_tokens ?? 500,
@@ -270,5 +338,20 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 			language: params.languageId,
 			extra: params.extra,
 		};
+	}
+
+	/**
+	 * Map model ID based on Feima preference configuration
+	 */
+	private _mapModelForFeimaPreference(modelId: string): string {
+		if (!this.feimaConfig.getConfig().preferFeimaModels) {
+			return modelId;
+		}
+
+		const modelMapping = new Map<string, string>([
+			['gpt-41-copilot', 'qwen-coder-turbo']
+		]);
+
+		return modelMapping.get(modelId) ?? modelId;
 	}
 }

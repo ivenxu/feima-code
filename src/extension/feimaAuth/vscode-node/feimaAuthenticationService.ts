@@ -141,28 +141,54 @@ export class FeimaAuthenticationService implements IFeimaAuthenticationService {
 			}
 
 			// Check if token needs refresh
-			const needsRefresh = this._oauth2Service.shouldRefreshToken(stored.tokenResponse);
-			if (needsRefresh && stored.tokenResponse.refresh_token) {
-				try {
-					this._logService.info('[FeimaAuthenticationService] Refreshing expired token');
-					const refreshed = await this._oauth2Service.refreshAccessToken(stored.tokenResponse.refresh_token);
-					await this._saveToken(refreshed, stored.accountId, stored.accountLabel, stored.sessionId);
+			// We need to determine actual token expiry using stored.issuedAt + expires_in
+			if (!stored.tokenResponse.expires_in) {
+				this._logService.debug('[FeimaAuthenticationService] Token has no expires_in field');
+			} else {
+				const issuedAt = stored.issuedAt;  // When we stored the token
+				const expiresAt = issuedAt + (stored.tokenResponse.expires_in * 1000);
+				const now = Date.now();
+				const timeUntilExpiry = Math.max(0, expiresAt - now);
+				const fiveMinutes = 5 * 60 * 1000;
+				const needsRefresh = timeUntilExpiry < fiveMinutes;
 
-					// Update cached session with new token
-					this._cachedSessions = [{
-						id: stored.sessionId,
-						accessToken: refreshed.access_token,
-						account: {
-							id: stored.accountId,
-							label: stored.accountLabel
-						},
-						scopes: []
-					}];
-				} catch (error) {
-					this._logService.error('[FeimaAuthenticationService] Token refresh failed:', error);
-					await this._clearStoredToken();
-					this._cachedSessions = [];
-					return [];
+				this._logService.debug(`[FeimaAuthenticationService] Token refresh evaluation: needsRefresh=${needsRefresh}, hasRefreshToken=${!!stored.tokenResponse.refresh_token}`);
+				this._logService.debug(`[FeimaAuthenticationService] Token expiry details: issuedAt=${new Date(issuedAt).toISOString()}, expiresAt=${new Date(expiresAt).toISOString()}, now=${new Date(now).toISOString()}, timeUntilExpiry=${Math.round(timeUntilExpiry / 1000)}s`);
+
+				if (needsRefresh && stored.tokenResponse.refresh_token) {
+					try {
+						this._logService.info('[FeimaAuthenticationService] Refreshing expired token');
+						const refreshed = await this._oauth2Service.refreshAccessToken(stored.tokenResponse.refresh_token);
+
+						// If the OAuth2 server didn't return a new refresh_token, preserve the existing one
+						// (RFC 6749 allows servers to reuse the old refresh_token)
+						if (!refreshed.refresh_token) {
+							this._logService.debug('[FeimaAuthenticationService] Server did not return new refresh_token, preserving existing one');
+							refreshed.refresh_token = stored.tokenResponse.refresh_token;
+						}
+
+						await this._saveToken(refreshed, stored.accountId, stored.accountLabel, stored.sessionId);
+
+						// Update cached session with new token
+						this._cachedSessions = [{
+							id: stored.sessionId,
+							accessToken: refreshed.access_token,
+							account: {
+								id: stored.accountId,
+								label: stored.accountLabel
+							},
+							scopes: []
+						}];
+					} catch (error) {
+						this._logService.error('[FeimaAuthenticationService] Token refresh failed:', error);
+						await this._clearStoredToken();
+						this._cachedSessions = [];
+						return [];
+					}
+				} else if (!needsRefresh) {
+					this._logService.debug('[FeimaAuthenticationService] Token does not need refresh yet');
+				} else if (!stored.tokenResponse.refresh_token) {
+					this._logService.warn('[FeimaAuthenticationService] Token needs refresh but no refresh_token available');
 				}
 			}
 
@@ -373,11 +399,12 @@ export class FeimaAuthenticationService implements IFeimaAuthenticationService {
 	private async _saveToken(tokenResponse: IAuthorizationTokenResponse, accountId: string, accountLabel: string, sessionId: string): Promise<void> {
 		const data: IStoredTokenData = {
 			tokenResponse,
-			issuedAt: Date.now(),
+			issuedAt: Date.now(),  // Record when we stored this token
 			sessionId,
 			accountId,
 			accountLabel
 		};
+		this._logService.debug(`[FeimaAuthenticationService] Saving token with issuedAt=${new Date(data.issuedAt).toISOString()}`);
 		await this._context.secrets.store(this._secretsKey, JSON.stringify(data));
 	}
 

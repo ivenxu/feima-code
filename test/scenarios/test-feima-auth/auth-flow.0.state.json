@@ -1,0 +1,29 @@
+{
+	"activeTextEditor": {
+		"document": {
+			"languageId": "typescript",
+			"uri": "file:///test/workspace/sample.ts"
+		},
+		"selection": {
+			"start": { "line": 0, "character": 0 },
+			"end": { "line": 0, "character": 0 }
+		}
+	},
+	"workspace": {
+		"folders": [
+			{
+				"uri": "file:///test/workspace",
+				"name": "test-workspace"
+			}
+		]
+	},
+	"configuration": {
+		"feima.authBaseUrl": "https://auth.feima.ai",
+		"feima.apiBaseUrl": "https://api.feima.ai/v1",
+		"feima.clientId": "vscode-feima-client",
+		"feima.preferFeimaModels": true
+	},
+	"authentication": {
+		"sessions": []
+	}
+}
