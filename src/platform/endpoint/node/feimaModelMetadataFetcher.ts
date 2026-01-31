@@ -75,16 +75,29 @@ export class FeimaModelMetadataFetcher extends Disposable implements IModelMetad
 	}
 
 	/**
-	 * Get chat model by family name
+	 * Get chat model by family name.
+	 * If multiple models exist for the family, returns the first one (preferring defaults).
 	 */
 	async getChatModelFromFamily(family: ChatEndpointFamily): Promise<IChatModelInformation> {
 		await this._fetchModelsIfNeeded(false);
 
-		const model = this._chatModels.find(m => m.capabilities.family === family);
-		if (!model) {
+		// Filter all models with matching family
+		const modelsInFamily = this._chatModels.filter(m => m.capabilities.family === family);
+
+		if (modelsInFamily.length === 0) {
 			throw new Error(`No Feima chat model found for family: ${family}`);
 		}
-		return model;
+
+		// Prefer the default model if one exists, otherwise take the first
+		const defaultModel = modelsInFamily.find(m => m.is_chat_default);
+		const selectedModel = defaultModel || modelsInFamily[0];
+
+		this.logService.trace(
+			`[FeimaModelMetadataFetcher] Resolved family '${family}' to model '${selectedModel.id}' ` +
+			`(${modelsInFamily.length} total in family${defaultModel ? ', selected as default' : ''})`
+		);
+
+		return selectedModel;
 	}
 
 	/**

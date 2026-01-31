@@ -2,14 +2,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { IGitHubToFeimaModelMappingService } from '../../../../../../extension/endpoint/common/githubToFeimaModelMappingService';
 import { IFeimaConfigService } from '../../../../../../extension/feimaConfig/common/feimaConfigService';
 import { IAuthenticationService } from '../../../../../../platform/authentication/common/authentication';
 import { IFeimaAuthenticationService } from '../../../../../../platform/authentication/node/feimaAuthenticationService';
 import { IFeimaModelMetadataFetcher } from '../../../../../../platform/endpoint/node/feimaModelMetadataFetcher';
 import { IEnvService } from '../../../../../../platform/env/common/envService';
 import { ILogService } from '../../../../../../platform/log/common/logService';
-import { IFetcherService } from '../../../../../../platform/networking/common/fetcherService';
 import { ICompletionsFetchService } from '../../../../../../platform/nesFetch/common/completionsFetchService';
+import { IFetcherService } from '../../../../../../platform/networking/common/fetcherService';
 import { CancellationToken } from '../../../../../../util/vs/base/common/cancellation';
 import { IInstantiationService } from '../../../../../../util/vs/platform/instantiation/common/instantiation';
 import { CancellationToken as ICancellationToken } from '../../../types/src';
@@ -72,6 +73,7 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 		@IFeimaAuthenticationService private readonly feimaAuth: IFeimaAuthenticationService,
 		@IFeimaConfigService private readonly feimaConfig: IFeimaConfigService,
 		@IFeimaModelMetadataFetcher private readonly feimaModelFetcher: IFeimaModelMetadataFetcher,
+		@IGitHubToFeimaModelMappingService private readonly modelMappingService: IGitHubToFeimaModelMappingService,
 		@ILogService private readonly feimaLogService: ILogService,
 		@IFetcherService private readonly feimaFetcherService: IFetcherService,
 		// Parent class parameters (LiveOpenAIFetcher)
@@ -342,16 +344,13 @@ export class FeimaOpenAIFetcher extends LiveOpenAIFetcher {
 
 	/**
 	 * Map model ID based on Feima preference configuration
+	 * Uses the centralized GitHubToFeimaModelMappingService.
 	 */
 	private _mapModelForFeimaPreference(modelId: string): string {
 		if (!this.feimaConfig.getConfig().preferFeimaModels) {
 			return modelId;
 		}
 
-		const modelMapping = new Map<string, string>([
-			['gpt-41-copilot', 'qwen-coder-turbo']
-		]);
-
-		return modelMapping.get(modelId) ?? modelId;
+		return this.modelMappingService.getFeimaModel(modelId) ?? modelId;
 	}
 }

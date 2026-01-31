@@ -3,7 +3,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { ChatRequest, LanguageModelChat } from 'vscode';
+import { IGitHubToFeimaModelMappingService } from '../../../extension/endpoint/common/githubToFeimaModelMappingService';
 import { IFeimaConfigService } from '../../../extension/feimaConfig/common/feimaConfigService';
+import { IAuthenticationService } from '../../../platform/authentication/common/authentication';
 import { IFeimaAuthenticationService } from '../../../platform/authentication/node/feimaAuthenticationService';
 import { ChatEndpointFamily, EmbeddingsEndpointFamily, IChatModelInformation, ICompletionModelInformation, IEndpointProvider, IFeimaEndpointProvider, IGitHubEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
 import { FeimaChatEndpoint } from '../../../platform/endpoint/node/feimaChatEndpoint';
@@ -163,24 +165,13 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 
 	declare readonly _serviceBrand: undefined;
 
-	/**
-	 * Predefined mapping from GitHub model families to equivalent Feima model IDs.
-	 * Used when GitHub isn't authenticated but Feima is, to provide fallback models.
-	 */
-	private readonly githubToFeimaModelMap: Map<string, string> = new Map([
-		['gpt-4o', 'gpt-4o'],  // Map GitHub GPT-4o to Feima GPT-4o
-		['gpt-4o-mini', 'gpt-4o-mini'],  // Map GitHub GPT-4o-mini to Feima GPT-4o-mini
-		['gpt-4', 'gpt-4-turbo'],  // Map GitHub GPT-4 to Feima GPT-4-turbo
-		['o1-preview', 'o1-preview'],  // Map GitHub o1-preview to Feima o1-preview
-		['o1-mini', 'o1-mini'],  // Map GitHub o1-mini to Feima o1-mini
-		// Add more mappings as needed
-	]);
-
 	constructor(
 		@IGitHubEndpointProvider private readonly githubProvider: IEndpointProvider,
 		@IFeimaEndpointProvider private readonly feimaProvider: IEndpointProvider,
+		@IAuthenticationService private readonly githubAuthService: IAuthenticationService,
 		@IFeimaAuthenticationService private readonly feimaAuthService: IFeimaAuthenticationService,
 		@IFeimaConfigService private readonly feimaConfigService: IFeimaConfigService,
+		@IGitHubToFeimaModelMappingService private readonly modelMappingService: IGitHubToFeimaModelMappingService,
 		@ILogService private readonly logService: ILogService
 	) { }
 
@@ -222,16 +213,20 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 		this.logService.trace('[CombinedEndpointProvider] Getting all completion models');
 
 		const config = this.feimaConfigService.getConfig();
+		const isGitHubAuthenticated = !!this.githubAuthService.copilotToken && !this.githubAuthService.copilotToken.isNoAuthUser;
 
 		// Fetch from both providers in parallel (each handles its own authentication)
+		// Skip GitHub provider for anonymous users
 		const [githubModels, feimaModels] = await Promise.all([
-			this.githubProvider.getAllCompletionModels(forceRefresh).catch(error => {
-				this.logService.error(
-					error instanceof Error ? error : new Error(String(error)),
-					'[CombinedEndpointProvider] Failed to fetch GitHub models'
-				);
-				return [];
-			}),
+			isGitHubAuthenticated
+				? this.githubProvider.getAllCompletionModels(forceRefresh).catch(error => {
+					this.logService.error(
+						error instanceof Error ? error : new Error(String(error)),
+						'[CombinedEndpointProvider] Failed to fetch GitHub models'
+					);
+					return [];
+				})
+				: Promise.resolve([]),
 			this.feimaProvider.getAllCompletionModels(forceRefresh).catch(error => {
 				this.logService.error(
 					error instanceof Error ? error : new Error(String(error)),
@@ -251,16 +246,20 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 		this.logService.trace('[CombinedEndpointProvider] Getting all chat endpoints');
 
 		const config = this.feimaConfigService.getConfig();
+		const isGitHubAuthenticated = !!this.githubAuthService.copilotToken && !this.githubAuthService.copilotToken.isNoAuthUser;
 
 		// Fetch from both providers in parallel (each handles its own authentication)
+		// Skip GitHub provider for anonymous users
 		const [githubEndpoints, feimaEndpoints] = await Promise.all([
-			this.githubProvider.getAllChatEndpoints().catch(error => {
-				this.logService.error(
-					error instanceof Error ? error : new Error(String(error)),
-					'[CombinedEndpointProvider] Failed to fetch GitHub endpoints'
-				);
-				return [];
-			}),
+			isGitHubAuthenticated
+				? this.githubProvider.getAllChatEndpoints().catch(error => {
+					this.logService.error(
+						error instanceof Error ? error : new Error(String(error)),
+						'[CombinedEndpointProvider] Failed to fetch GitHub endpoints'
+					);
+					return [];
+				})
+				: Promise.resolve([]),
 			this.feimaProvider.getAllChatEndpoints().catch(error => {
 				this.logService.error(
 					error instanceof Error ? error : new Error(String(error)),
@@ -314,6 +313,16 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 		const isFeimaAuthenticated = await this.feimaAuthService.isAuthenticated();
 		const config = this.feimaConfigService.getConfig();
 
+		// Map GitHub model families to Feima equivalents when appropriate
+		let resolvedRequestOrFamily = requestOrFamily;
+		if (typeof requestOrFamily === 'string' && config.preferFeimaModels && isFeimaAuthenticated) {
+			const feimaModelId = this.modelMappingService.getFeimaModel(requestOrFamily);
+			if (feimaModelId) {
+				this.logService.trace(`[CombinedEndpointProvider] Pre-mapping GitHub family ${requestOrFamily} to Feima model ${feimaModelId} for primary provider`);
+				resolvedRequestOrFamily = feimaModelId as ChatEndpointFamily;
+			}
+		}
+
 		// Determine primary and fallback providers based on preference
 		const primaryProvider = config.preferFeimaModels ? this.feimaProvider : this.githubProvider;
 		const fallbackProvider = config.preferFeimaModels ? this.githubProvider : this.feimaProvider;
@@ -323,7 +332,7 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 		// If both are authenticated, try primary then fallback
 		if (isFeimaAuthenticated) {
 			try {
-				const endpoint = await primaryProvider.getChatEndpoint(requestOrFamily);
+				const endpoint = await primaryProvider.getChatEndpoint(resolvedRequestOrFamily);
 				this.logService.trace(`[CombinedEndpointProvider] Resolved to ${primaryName} endpoint`);
 				return endpoint;
 			} catch (primaryError) {
@@ -342,28 +351,6 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 			}
 		}
 
-		// If only GitHub is authenticated, use it directly
-		// If Feima is not authenticated and preferFeimaModels is false, use GitHub
-		if (!config.preferFeimaModels) {
-			this.logService.trace('[CombinedEndpointProvider] Resolving from GitHub endpoint provider');
-			return this.githubProvider.getChatEndpoint(requestOrFamily);
-		}
-
-		// If GitHub isn't authenticated but Feima is preferred, try to map the model and use Feima
-		if (config.preferFeimaModels && !isFeimaAuthenticated) {
-			// Try to translate GitHub model family to Feima equivalent
-			if (typeof requestOrFamily === 'string') {
-				const feimaModelId = this.githubToFeimaModelMap.get(requestOrFamily);
-				if (feimaModelId) {
-					this.logService.trace(`[CombinedEndpointProvider] Mapping GitHub family ${requestOrFamily} to Feima model ${feimaModelId}`);
-					try {
-						return await this.feimaProvider.getChatEndpoint(feimaModelId as ChatEndpointFamily);
-					} catch (error) {
-						this.logService.trace(`[CombinedEndpointProvider] Feima mapping failed: ${error}`);
-					}
-				}
-			}
-		}
 
 		// Final fallback to GitHub
 		this.logService.trace('[CombinedEndpointProvider] Using GitHub as final fallback');

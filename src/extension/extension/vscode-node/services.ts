@@ -88,6 +88,7 @@ import { ChatAgentService } from '../../conversation/vscode-node/chatParticipant
 import { FeedbackReporter } from '../../conversation/vscode-node/feedbackReporter';
 import { IUserFeedbackService, UserFeedbackService } from '../../conversation/vscode-node/userActions';
 import { ConversationStore, IConversationStore } from '../../conversationStore/node/conversationStore';
+import { GitHubToFeimaModelMappingService, IGitHubToFeimaModelMappingService } from '../../endpoint/common/githubToFeimaModelMappingService';
 import { IOAuth2Service, OAuth2Service } from '../../feimaAuth/common/oauth2Service';
 import { FeimaAuthenticationService } from '../../feimaAuth/vscode-node/feimaAuthenticationService';
 import { IFeimaConfigService } from '../../feimaConfig/common/feimaConfigService';
@@ -197,6 +198,7 @@ export function registerServices(builder: IInstantiationServiceBuilder, extensio
 	builder.define(IFeimaConfigService, new SyncDescriptor(FeimaConfigService));
 	builder.define(IFeimaQuotaService, new SyncDescriptor(FeimaQuotaService));
 	builder.define(IFeimaModelMetadataFetcher, new SyncDescriptor(FeimaModelMetadataFetcher));
+	builder.define(IGitHubToFeimaModelMappingService, new SyncDescriptor(GitHubToFeimaModelMappingService));
 
 	builder.define(ITestGenInfoStorage, new SyncDescriptor(TestGenInfoStorage)); // Used for test generation (/tests intent)
 	builder.define(IParserService, new SyncDescriptor(ParserServiceImpl, [/*useWorker*/ true]));
