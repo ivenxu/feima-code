@@ -163,7 +163,7 @@ export class FeimaModelProvider implements vscode.LanguageModelChatProvider {
 			endpoint,
 			messages,
 			options,
-			'GitHub.copilot-chat', // extensionId - must match the actual extension ID from package.json
+			'Feima.feimacode', // extensionId - must match the actual extension ID from package.json
 			progress,
 			token
 		);

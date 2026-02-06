@@ -74,7 +74,7 @@ export class FeimaAuthenticationService implements IFeimaAuthenticationService {
 		// Construct redirect URI based on VS Code URI scheme (vscode:// or vscode-insiders://)
 		// This ensures the OAuth callback works in both stable and insiders builds
 		// Use /oauth/callback path to avoid conflict with GitHub auth provider's /did-authenticate
-		this._redirectUri = `${vscode.env.uriScheme}://GitHub.copilot-chat/oauth/callback`;
+		this._redirectUri = `${vscode.env.uriScheme}://feima.feimacode/oauth/callback`;
 
 		// Load initial sessions cache
 		// Store the promise so getSessions() can wait for initialization to complete
