@@ -9,6 +9,7 @@ import { IAuthenticationService } from '../../../platform/authentication/common/
 import { IFeimaAuthenticationService } from '../../../platform/authentication/node/feimaAuthenticationService';
 import { ChatEndpointFamily, EmbeddingsEndpointFamily, IChatModelInformation, ICompletionModelInformation, IEndpointProvider, IFeimaEndpointProvider, IGitHubEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
 import { FeimaChatEndpoint } from '../../../platform/endpoint/node/feimaChatEndpoint';
+import { FeimaEmbeddingsEndpoint } from '../../../platform/endpoint/node/feimaEmbeddingsEndpoint';
 import { IFeimaModelMetadataFetcher } from '../../../platform/endpoint/node/feimaModelMetadataFetcher';
 import { ILogService } from '../../../platform/log/common/logService';
 import { IChatEndpoint, IEmbeddingsEndpoint } from '../../../platform/networking/common/networking';
@@ -35,6 +36,7 @@ export class FeimaOnlyEndpointProvider implements IEndpointProvider {
 	constructor(
 		@IFeimaAuthenticationService private readonly feimaAuthService: IFeimaAuthenticationService,
 		@IFeimaModelMetadataFetcher private readonly feimaModelFetcher: IFeimaModelMetadataFetcher,
+		@IFeimaConfigService private readonly feimaConfigService: IFeimaConfigService,
 		@ILogService private readonly logService: ILogService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) {
@@ -145,8 +147,25 @@ export class FeimaOnlyEndpointProvider implements IEndpointProvider {
 	}
 
 	async getEmbeddingsEndpoint(family?: EmbeddingsEndpointFamily): Promise<IEmbeddingsEndpoint> {
-		// Feima embeddings not yet supported
-		throw new Error('Feima embeddings not yet supported');
+		this.logService.trace('[FeimaOnlyEndpointProvider] Getting embeddings endpoint');
+
+		// Check authentication
+		const isAuthenticated = await this.feimaAuthService.isAuthenticated();
+		if (!isAuthenticated) {
+			throw new Error('Feima not authenticated');
+		}
+
+		// Fetch embedding model metadata (use 'text-embedding-3-small' literal for compatibility)
+		const model = await this.feimaModelFetcher.getEmbeddingsModel('text-embedding-3-small');
+		if (!model) {
+			throw new Error('Feima embedding model not found');
+		}
+
+		// Get Feima API endpoint from config
+		const feimaApiEndpoint = this.feimaConfigService.getConfig().apiBaseUrl;
+
+		// Create and return FeimaEmbeddingsEndpoint
+		return this.instantiationService.createInstance(FeimaEmbeddingsEndpoint, model, feimaApiEndpoint);
 	}
 }
 
@@ -363,6 +382,16 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 		const isFeimaAuthenticated = await this.feimaAuthService.isAuthenticated();
 		const config = this.feimaConfigService.getConfig();
 
+		// Map GitHub embedding families to Feima equivalents when appropriate
+		let resolvedFamily = family;
+		if (family && config.preferFeimaModels && isFeimaAuthenticated) {
+			const feimaModelId = this.modelMappingService.getFeimaModel(family);
+			if (feimaModelId) {
+				this.logService.trace(`[CombinedEndpointProvider] Pre-mapping GitHub embedding family ${family} to Feima model ${feimaModelId}`);
+				resolvedFamily = feimaModelId as EmbeddingsEndpointFamily;
+			}
+		}
+
 		// Determine primary and fallback providers based on preference
 		const primaryProvider = config.preferFeimaModels ? this.feimaProvider : this.githubProvider;
 		const fallbackProvider = config.preferFeimaModels ? this.githubProvider : this.feimaProvider;
@@ -372,7 +401,7 @@ export class CombinedEndpointProvider implements IEndpointProvider {
 		// If both are authenticated, try primary then fallback
 		if (isFeimaAuthenticated) {
 			try {
-				const endpoint = await primaryProvider.getEmbeddingsEndpoint(family);
+				const endpoint = await primaryProvider.getEmbeddingsEndpoint(resolvedFamily);
 				this.logService.trace(`[CombinedEndpointProvider] Resolved to ${primaryName} embeddings endpoint`);
 				return endpoint;
 			} catch (primaryError) {
