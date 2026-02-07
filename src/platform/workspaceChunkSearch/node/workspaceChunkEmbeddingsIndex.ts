@@ -15,7 +15,6 @@ import { ResourceMap } from '../../../util/vs/base/common/map';
 import { extname } from '../../../util/vs/base/common/resources';
 import { URI } from '../../../util/vs/base/common/uri';
 import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
-import { IAuthenticationService } from '../../authentication/common/authentication';
 import { FileChunk, FileChunkAndScore, FileChunkWithEmbedding, FileChunkWithOptionalEmbedding } from '../../chunking/common/chunk';
 import { ComputeBatchInfo, EmbeddingsComputeQos, IChunkingEndpointClient } from '../../chunking/common/chunkingEndpointClient';
 import { distance, Embedding, EmbeddingType, rankEmbeddings } from '../../embeddings/common/embeddingsComputer';
@@ -48,7 +47,6 @@ export class WorkspaceChunkEmbeddingsIndex extends Disposable {
 		private readonly _embeddingType: EmbeddingType,
 		@IVSCodeExtensionContext vsExtensionContext: IVSCodeExtensionContext,
 		@IInstantiationService instantiationService: IInstantiationService,
-		@IAuthenticationService private readonly _authService: IAuthenticationService,
 		@ILogService private readonly _logService: ILogService,
 		@ISimulationTestContext private readonly _simulationTestContext: ISimulationTestContext,
 		@ITelemetryService private readonly _telemetryService: ITelemetryService,
@@ -450,6 +448,7 @@ export class WorkspaceChunkEmbeddingsIndex extends Disposable {
 	}
 
 	private async tryGetAuthToken(options: AuthenticationGetSessionOptions = { createIfNone: true }): Promise<string | undefined> {
-		return (await this._authService.getGitHubSession('any', options))?.accessToken;
+		// return (await this._authService.getGitHubSession('any', options))?.accessToken;
+		return Promise.resolve('fake-auth-token-for-feima'); // fake token to let chunking endpoint client to fetch token
 	}
 }

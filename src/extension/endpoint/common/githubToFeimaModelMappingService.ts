@@ -55,10 +55,12 @@ export class GitHubToFeimaModelMappingService implements IGitHubToFeimaModelMapp
 	 * Maps both:
 	 * 1. GitHub canonical families: 'copilot-fast', 'copilot-base'
 	 * 2. Resolved model IDs: 'gpt-4o-mini', 'gpt-41-copilot'
+	 * 3. Embeddings models: 'text-embedding-3-small', 'text3small-512'
 	 *
-	 * Target models are selected from #file:001_initial_schema.py:
+	 * Target models are selected from database model catalog:
 	 * - qwen-flash: Free tier, 1M context, ultra-fast
 	 * - qwen-coder-turbo: Free tier (assumed), specialized for code
+	 * - text-embedding-v4: Ali Cloud embeddings, 512 dimensions
 	 */
 	private readonly _modelMap: Map<string, string> = new Map([
 		// GitHub canonical families → Feima free-tier models
@@ -69,6 +71,11 @@ export class GitHubToFeimaModelMappingService implements IGitHubToFeimaModelMapp
 		// GitHub resolved model IDs → Feima equivalents
 		['gpt-4o-mini', 'qwen3'],          // Lightweight model → fast Feima model
 		['gpt-41-copilot', 'qwen-coder-turbo'], // Code-specialized → coder turbo
+
+		// GitHub embeddings models → Feima embeddings
+		['text-embedding-3-small', 'text-embedding-v4'],     // GitHub embeddings → Ali Cloud
+		['text-embedding-3-small-512', 'text-embedding-v4'], // GitHub full ID → Feima model
+		['text3small-512', 'text-embedding-v4'],             // Internal short ID → Feima model
 	]);
 
 	getFeimaModel(githubModelOrFamily: string): string | undefined {
